@@ -30,7 +30,7 @@ import TeamSecretary from './pages/TeamSecretary'
 import TeamSecretaryAttendance from './pages/TeamSecretaryAttendance'
 import AdminEvents from './pages/AdminEvents'
 import AdminEvalQuestions from './pages/AdminEvalQuestions'
-import FinanceEvent from './pages/FinanceEvent'
+import FinanceEvent from './pages/financeEvent'
 import MaterialsReturnApprove from './pages/MaterialsReturnApprove'
 
 function ProtectedLayout() {
