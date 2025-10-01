@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { useState } from 'react'
 import { AuthProvider, useAuth } from './components/AuthProvider'
 import SideNav from './components/SideNav'
 
@@ -36,12 +37,44 @@ import MaterialsReturnApprove from './pages/MaterialsReturnApprove'
 function ProtectedLayout() {
   const { user, loading } = useAuth()
   const loc = useLocation()
+  const [navOpen, setNavOpen] = useState(false) // مقفول افتراضيًا
+
   if (loading) return <div className="center">...loading</div>
   if (!user) return <Navigate to="/" state={{ from: loc }} replace />
+
   return (
     <div className="app-grid">
-      <SideNav />
-      <main className="app-main">
+      {/* Topbar */}
+      <header className="app-topbar">
+        <button
+          type="button"
+          className="burger"
+          aria-label="فتح القائمة"
+          onClick={() => setNavOpen(true)}
+        >
+          ☰
+        </button>
+        <div className="topbar-title">Scout Manager</div>
+      </header>
+
+      {/* Drawer: نتحكم في التحويل بالـinline style لضمان الإخفاء الافتراضي */}
+      <div
+        className="drawer-panel"
+        style={{ transform: navOpen ? 'translateX(0)' : 'translateX(110%)' }}
+        aria-hidden={!navOpen}
+      >
+        <SideNav onNavigate={() => setNavOpen(false)} />
+      </div>
+      {navOpen && (
+        <button
+          className="drawer-backdrop"
+          aria-label="إغلاق القائمة"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+
+      {/* Main */}
+      <main className="app-main" onClick={() => { if (navOpen) setNavOpen(false) }}>
         <Outlet />
       </main>
     </div>
@@ -78,7 +111,6 @@ export default function App() {
             <Route path="MaterialsReturnApprove" element={<MaterialsReturnApprove />} />
 
             <Route path="/app/AdminEvalQuestions" element={<AdminEvalQuestions />} />
-
             <Route path="/app/AdminFinance" element={<AdminFinance />} />
             <Route path="/app/AdminSecretary" element={<AdminSecretary />} />
             <Route path="/app/TeamSecretaryAttendance" element={<TeamSecretaryAttendance />} />
