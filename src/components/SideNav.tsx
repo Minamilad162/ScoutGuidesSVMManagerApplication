@@ -1,19 +1,22 @@
+// src/components/SideNav.tsx
 import { NavLink } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from './AuthProvider'
 import { supabase } from '../lib/supabase'
 
 type Item = { to: string; label: string }
+type RoleRow = { role_slug: string; team_id?: string | null }
 
 const PROGRAM_URL = 'https://drive.google.com/drive/folders/10Sr1dGAQLXKfz7ZauyPymnxEC_kaN6FO?usp=sharing'
 const IMAGES_URL  = 'https://drive.google.com/drive/folders/13wB3GMbm8CTxKLNomKB_Jr38OD1XjeR2?usp=sharing'
 
-export default function SideNav() {
+type Props = { onNavigate?: () => void }
+
+export default function SideNav({ onNavigate }: Props) {
   const { roles, user, signOut } = useAuth()
 
   // ===== Avatar =====
   const [avatar, setAvatar] = useState<string | null>(null)
-
   useEffect(() => {
     (async () => {
       try {
@@ -27,7 +30,6 @@ export default function SideNav() {
 
         const raw = data?.avatar_url ?? null
         if (!raw) { setAvatar(null); return }
-
         if (/^https?:\/\//i.test(raw)) {
           setAvatar(raw)
         } else {
@@ -47,9 +49,8 @@ export default function SideNav() {
     return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
   })().toUpperCase()
 
-  // ===== Unread notifications (Realtime + fallback polling) =====
+  // ===== Unread notifications badge (Realtime + fallback polling) =====
   const [unread, setUnread] = useState(0)
-
   useEffect(() => {
     if (!user?.id) return
     let isMounted = true
@@ -64,35 +65,20 @@ export default function SideNav() {
         if (error) throw error
         if (!isMounted) return
         setUnread(count ?? 0)
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
-    // أول تحميل
     fetchCount()
 
-    // Realtime: listen to notifications table for my user_id
     const ch = supabase
       .channel(`notif_count_sidebar_${user.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        fetchCount
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        fetchCount
-      )
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        fetchCount
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        () => fetchCount()
       )
       .subscribe()
 
-    // fallback polling
     pollTimer = setInterval(fetchCount, 30000)
 
     return () => {
@@ -103,14 +89,14 @@ export default function SideNav() {
   }, [user?.id])
 
   // ===== Roles / Nav items =====
-  const isAdmin = roles.some(r => r.role_slug === 'admin')
-  const has = (slug: string) => roles.some(r => r.role_slug === slug)
+  const isAdmin = roles.some((r: RoleRow) => r.role_slug === 'admin')
+  const has = (slug: string) => roles.some((r: RoleRow) => r.role_slug === slug)
 
   const isGlobalSecretary = roles.some(
-    r => r.role_slug === 'responsable_secretary' && (r.team_id === null || r.team_id === undefined)
+    (r: RoleRow) => r.role_slug === 'responsable_secretary' && (r.team_id === null || r.team_id === undefined)
   )
   const hasTeamSecretary = roles.some(
-    r => r.role_slug === 'responsable_secretary' && (r.team_id !== null && r.team_id !== undefined)
+    (r: RoleRow) => r.role_slug === 'responsable_secretary' && (r.team_id !== null && r.team_id !== undefined)
   )
 
   const pushUnique = (arr: Item[], to: string, label: string) => {
@@ -134,9 +120,7 @@ export default function SideNav() {
       pushUnique(res, '/app/AdminSecretary', 'إدارة السكرتارية')
       pushUnique(res, '/app/AdminEvents', 'فعاليات')
       pushUnique(res, '/app/AdminEvalQuestions', 'أسئلة التقييم')
-      // الأدمن يرى "ميزانية المجموعة"
       pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
-      // الأدمن يرى "تسليم العهده"
       pushUnique(res, '/app/MaterialsReturnApprove', 'تسليم العهده')
     } else {
       if (has('chef_de_legion')) {
@@ -147,28 +131,21 @@ export default function SideNav() {
         pushUnique(res, '/app/MaterialTeamReservation', 'الأدوات')
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
       }
-
-      // مسئول مالية + قائد فرقة: يظهر لهم "ميزانية المجموعة"
-      const canSeeFinanceEvent = has('responsable_finance') && has('chef_de_legion')
-      if (canSeeFinanceEvent) {
-        pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
-        // لو عايز كمان صفحة "إدارة الميزانية" لهم:
+      if (has('responsable_finance') && has('chef_de_legion')) {
         pushUnique(res, '/app/AdminFinance', 'ادارة الميزانية')
       }
-
-      // مسئول مالية فقط (بدون Chef) — يحتفظ بصفحة ميزانية الفريق
       if (has('responsable_finance') && !has('chef_de_legion')) {
         pushUnique(res, '/app/TeamFinance', 'المالية')
       }
-
-      // مسئول مواد (عام أو فريق): يرى صفحة "تسليم العهده"
-      const canSeeMaterialsApprove = roles.some(
-        r => r.role_slug === 'responsable_materials'
-      )
-      if (canSeeMaterialsApprove) {
+      if (isAdmin || has('responsable_finance') || has('chef_de_legion')) {
+        pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
+      }
+      const showMaterialsApprove =
+        roles.some((r: RoleRow) => r.role_slug === 'admin') ||
+        roles.some((r: RoleRow) => r.role_slug === 'responsable_materials')
+      if (showMaterialsApprove) {
         pushUnique(res, '/app/MaterialsReturnApprove', 'تسليم العهده')
       }
-
       if (isGlobalSecretary) {
         pushUnique(res, '/app/AdminSecretary', 'إدارة السكرتارية')
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
@@ -178,12 +155,14 @@ export default function SideNav() {
       }
     }
 
-    // يظهر للجميع (بما فيهم الأدمن)
+    // تقييمى للجميع (بما فيهم الأدمن)
     pushUnique(res, '/app/evaluation', 'تقييمي')
     pushUnique(res, '/app/notifications', 'الإشعارات')
 
     return res
   }, [roles, isAdmin, user, isGlobalSecretary, hasTeamSecretary])
+
+  const handleNavigate = () => { onNavigate?.() }
 
   return (
     <aside className="sidenav">
@@ -216,7 +195,13 @@ export default function SideNav() {
         {items.map(i => {
           const isNotif = i.to === '/app/notifications'
           return (
-            <NavLink key={i.to} to={i.to} end className={({isActive})=>`snav ${isActive?'snav-active':''}`}>
+            <NavLink
+              key={i.to}
+              to={i.to}
+              end
+              className={({isActive})=>`snav ${isActive?'snav-active':''}`}
+              onClick={handleNavigate}
+            >
               <span className="inline-flex items-center gap-2">
                 {i.label}
                 {isNotif && unread > 0 && (
@@ -233,13 +218,18 @@ export default function SideNav() {
           )
         })}
 
-        {/* روابط Drive الثابتة — تظهر للجميع */}
-        <a className="snav" href={PROGRAM_URL} target="_blank" rel="noreferrer">المنهج</a>
-        <a className="snav" href={IMAGES_URL}  target="_blank" rel="noreferrer">الصور</a>
+        {/* روابط Drive الثابتة */}
+        <a className="snav" href={PROGRAM_URL} target="_blank" rel="noreferrer" onClick={handleNavigate}>المنهج</a>
+        <a className="snav" href={IMAGES_URL}  target="_blank" rel="noreferrer" onClick={handleNavigate}>الصور</a>
       </nav>
 
       <div className="sidenav-footer">
-        <button className="btn border w-full" onClick={signOut}>تسجيل الخروج</button>
+        <button
+          className="btn border w-full"
+          onClick={() => { handleNavigate(); signOut() }}
+        >
+          تسجيل الخروج
+        </button>
       </div>
     </aside>
   )
