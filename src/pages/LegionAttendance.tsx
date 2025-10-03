@@ -19,15 +19,14 @@ type Scope = 'term' | 'overall'
 type KindFilter = 'all' | 'chefs' | 'equipiers'
 
 type DayStatus = {
-  present?: boolean        // true حاضر, false غائب
-  is_excused?: boolean     // لو غائب: بعذر؟
-  excuse_note?: string     // نص العذر
+  present?: boolean
+  is_excused?: boolean
+  excuse_note?: string
 }
 
 export default function LegionAttendance() {
   const toast = useToast()
 
-  // UI/loading
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -37,31 +36,27 @@ export default function LegionAttendance() {
   const [scope, setScope] = useState<Scope>('overall')
   const [kind, setKind] = useState<KindFilter>('equipiers')
 
-  // فريق القائد الحالي
+  // فريق القائد
   const [teamId, setTeamId] = useState<string>('')
 
-  // بيانات الأعضاء + سجلات الحضور (للحسابات)
+  // بيانات
   const [members, setMembers] = useState<Member[]>([])
   const [rows, setRows] = useState<AttRow[]>([])
 
-  // نموذج التسجيل (الكتابة)
+  // نموذج التسجيل
   const [dayDate, setDayDate] = useState<string>('')
   const [dayType, setDayType] = useState<'meeting' | 'preparation'>('meeting')
-  // الحالة لكل عضو في اليوم
   const [dayStatus, setDayStatus] = useState<Record<string, DayStatus>>({})
 
-  // تهيئة
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
     try {
-      // فريق القائد
       const { data: me, error: meErr } = await supabase.from('v_me').select('team_id').maybeSingle()
       if (meErr) throw meErr
       if (!me?.team_id) throw new Error('لا يوجد فريق مرتبط بحسابك')
       setTeamId(me.team_id)
 
-      // الترمات
       const { data: ts, error: te } = await supabase
         .from('terms').select('id,name,year,start_date,end_date')
         .order('year', { ascending: false }).order('name', { ascending: true })
@@ -69,7 +64,6 @@ export default function LegionAttendance() {
       setTerms((ts as any) ?? [])
       if (ts && ts.length) setTermId(ts[0].id)
 
-      // أعضاء الفريق (LEFT JOIN على الرتب عشان الإكويبيير يظهروا حتى لو مفيش rank)
       const { data: ms, error: me2 } = await supabase
         .from('members')
         .select('id, full_name, is_equipier, rank:ranks(rank_label)')
@@ -78,7 +72,6 @@ export default function LegionAttendance() {
       if (me2) throw me2
       setMembers((ms as any) ?? [])
 
-      // تاريخ/نوع اليوم الافتراضي
       const now = new Date()
       const pad = (n:number)=>String(n).padStart(2,'0')
       const d = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
@@ -91,7 +84,6 @@ export default function LegionAttendance() {
     }
   }
 
-  // جلب سجلات القراءة حسب النطاق/الترم
   useEffect(() => { if (teamId) refreshRead() }, [teamId, scope, termId, terms])
   async function refreshRead() {
     setLoading(true)
@@ -118,11 +110,9 @@ export default function LegionAttendance() {
     }
   }
 
-  // تحميل حالة اليوم المختار (للكتابة)
   useEffect(() => { if (teamId && dayDate && dayType) refreshDay() }, [teamId, dayDate, dayType, kind])
   async function refreshDay() {
     try {
-      // لو بتسجل للإكويبيير، النوع اجتماع فقط
       if (kind === 'equipiers' && dayType !== 'meeting') setDayType('meeting')
 
       const { data, error } = await supabase
@@ -147,7 +137,6 @@ export default function LegionAttendance() {
     }
   }
 
-  // فلترة الأعضاء حسب النوع المطلوب
   const filteredMembers = useMemo(() => {
     switch (kind) {
       case 'chefs': return members.filter(m => !m.is_equipier)
@@ -156,7 +145,6 @@ export default function LegionAttendance() {
     }
   }, [members, kind])
 
-  // حساب الإحصائيات (تشمل غياب بعذر/بدون)
   const stats = useMemo(() => {
     const map: Record<string, {
       present: number, total: number,
@@ -167,12 +155,8 @@ export default function LegionAttendance() {
       const mid = r.member_id
       if (!map[mid]) map[mid] = { present: 0, total: 0, excused: 0, unexcused: 0 }
       map[mid].total += 1
-      if (r.is_present) {
-        map[mid].present += 1
-      } else {
-        if (r.is_excused) map[mid].excused += 1
-        else map[mid].unexcused += 1
-      }
+      if (r.is_present) map[mid].present += 1
+      else (r.is_excused ? map[mid].excused++ : map[mid].unexcused++)
     })
 
     return filteredMembers.map(m => {
@@ -191,7 +175,6 @@ export default function LegionAttendance() {
     }).sort((a,b)=> a.name.localeCompare(b.name, 'ar'))
   }, [rows, filteredMembers])
 
-  // تعديل حالة عضو في نموذج اليوم
   function setPresent(mid: string, v: boolean) {
     setDayStatus(prev => {
       const curr = prev[mid] || {}
@@ -211,7 +194,6 @@ export default function LegionAttendance() {
     })
   }
 
-  // حفظ حضور/غياب اليوم
   async function saveDay() {
     if (!teamId) return toast.error('لا يوجد فريق')
     if (!dayDate) return toast.error('اختر التاريخ')
@@ -221,7 +203,6 @@ export default function LegionAttendance() {
 
     setSaving(true)
     try {
-      // 1) upsert لاجتماع اليوم
       const { data: mrow, error: me } = await supabase
         .from('meetings')
         .upsert({ team_id: teamId, meeting_date: dayDate, mtype: effectiveType }, { onConflict: 'team_id,meeting_date,mtype' })
@@ -230,7 +211,6 @@ export default function LegionAttendance() {
       const meeting_id = mrow?.id
       if (!meeting_id) throw new Error('تعذر الحصول على اجتماع اليوم')
 
-      // 2) جهّز الصفوف
       const payload: any[] = []
       for (const m of filteredMembers) {
         const st = dayStatus[m.id]
@@ -250,7 +230,6 @@ export default function LegionAttendance() {
         return
       }
 
-      // 3) upsert على attendance
       const { error: aerr } = await supabase
         .from('attendance')
         .upsert(payload, { onConflict: 'meeting_id,member_id' })
@@ -265,7 +244,6 @@ export default function LegionAttendance() {
     }
   }
 
-  // UI
   return (
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
@@ -308,19 +286,19 @@ export default function LegionAttendance() {
           >
             <option value="all">الكل</option>
             <option value="chefs">القادة فقط</option>
-            <option value="equipiers">الإكويبيير فقط</option>
+            <option value="equipiers">Equipier فقط</option>
           </select>
           {kind === 'equipiers' && (
-            <div className="text-[11px] text-gray-500 mt-1">الإكويبيير يُسجَّل لهم اجتماعات فقط.</div>
+            <div className="text-[11px] text-gray-500 mt-1">Equipier يُسجَّل لهم اجتماعات فقط.</div>
           )}
         </div>
 
-        <div className="text-end">
-          <button className="btn border" onClick={refreshRead}>تحديث</button>
+        <div className="md:text-end">
+          <button className="btn border w-full md:w-auto" onClick={refreshRead}>تحديث</button>
         </div>
       </div>
 
-      {/* قسم الكتابة: تسجيل حضور/غياب اليوم + العذر */}
+      {/* تسجيل اليوم */}
       <section className="card space-y-3">
         <h2 className="text-lg font-semibold">تسجيل حضور/غياب — اليوم</h2>
 
@@ -341,98 +319,107 @@ export default function LegionAttendance() {
               <option value="preparation">تحضير</option>
             </select>
           </div>
-          <div className="md:col-span-3 text-end">
-            <LoadingButton loading={saving} onClick={saveDay}>حفظ اليوم</LoadingButton>
+          <div className="md:col-span-3 md:text-end">
+            <LoadingButton loading={saving} onClick={saveDay}>
+              <span className="w-full md:w-auto inline-block">حفظ اليوم</span>
+            </LoadingButton>
           </div>
         </div>
 
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-2 text-start">الاسم</th>
-                <th className="p-2 text-start">الرتبة</th>
-                <th className="p-2 text-center">حاضر</th>
-                <th className="p-2 text-center">غائب</th>
-                <th className="p-2 text-center">بعذر؟</th>
-                <th className="p-2 text-start">العذر</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredMembers.map(m => {
-                const st = dayStatus[m.id] || {}
-                const present = st.present === true
-                const absent = st.present === false
-                return (
-                  <tr key={m.id} className="border-t align-top">
-                    <td className="p-2">{m.full_name}</td>
-                    <td className="p-2">{m.rank?.rank_label || (m.is_equipier ? 'Equipier' : '—')}</td>
-                    <td className="p-2 text-center">
-                      <input type="radio" name={`att-${m.id}`} checked={present} onChange={()=>setPresent(m.id, true)} />
-                    </td>
-                    <td className="p-2 text-center">
-                      <input type="radio" name={`att-${m.id}`} checked={absent} onChange={()=>setPresent(m.id, false)} />
-                    </td>
-                    <td className="p-2 text-center">
-                      <input type="checkbox" disabled={!absent} checked={!!st.is_excused} onChange={e=>setExcused(m.id, e.target.checked)} />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        className="border rounded-xl p-2 w-full"
-                        placeholder="سبب الغياب (اختياري)"
-                        value={st.excuse_note || ''}
-                        onChange={e=>setNote(m.id, e.target.value)}
-                        disabled={!absent}
-                      />
-                    </td>
-                  </tr>
-                )
-              })}
-              {filteredMembers.length === 0 && (
-                <tr><td className="p-3 text-center text-gray-500" colSpan={6}>لا يوجد أعضاء في هذا التصنيف</td></tr>
-              )}
-            </tbody>
-          </table>
+        {/* ✅ جدول اليوم — Scroll أفقي على الموبايل */}
+        <div className="rounded-2xl border">
+          <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
+            <table className="table-auto w-full min-w-[900px] text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-2 text-start">الاسم</th>
+                  <th className="p-2 text-start">الرتبة</th>
+                  <th className="p-2 text-center">حاضر</th>
+                  <th className="p-2 text-center">غائب</th>
+                  <th className="p-2 text-center">بعذر؟</th>
+                  <th className="p-2 text-start">العذر</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMembers.map(m => {
+                  const st = dayStatus[m.id] || {}
+                  const present = st.present === true
+                  const absent = st.present === false
+                  return (
+                    <tr key={m.id} className="border-t align-top">
+                      <td className="p-2">{m.full_name}</td>
+                      <td className="p-2">{m.rank?.rank_label || (m.is_equipier ? 'Equipier' : '—')}</td>
+                      <td className="p-2 text-center">
+                        <input type="radio" name={`att-${m.id}`} checked={present} onChange={()=>setPresent(m.id, true)} />
+                      </td>
+                      <td className="p-2 text-center">
+                        <input type="radio" name={`att-${m.id}`} checked={absent} onChange={()=>setPresent(m.id, false)} />
+                      </td>
+                      <td className="p-2 text-center">
+                        <input type="checkbox" disabled={!absent} checked={!!st.is_excused} onChange={e=>setExcused(m.id, e.target.checked)} />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="border rounded-xl p-2 w-full"
+                          placeholder="سبب الغياب (اختياري)"
+                          value={st.excuse_note || ''}
+                          onChange={e=>setNote(m.id, e.target.value)}
+                          disabled={!absent}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filteredMembers.length === 0 && (
+                  <tr><td className="p-3 text-center text-gray-500" colSpan={6}>لا يوجد أعضاء في هذا التصنيف</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
-      {/* قسم القراءة: إحصائيات */}
+      {/* الإحصائيات */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">الإحصائيات</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-2 text-start">الاسم</th>
-                <th className="p-2 text-start">الرتبة</th>
-                <th className="p-2 text-center">حضور</th>
-                <th className="p-2 text-center">غياب بعذر</th>
-                <th className="p-2 text-center">غياب بدون عذر</th>
-                <th className="p-2 text-center">الإجمالي</th>
-                <th className="p-2 text-center">نسبة الحضور</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.map(r => (
-                <tr key={r.member_id} className="border-t">
-                  <td className="p-2">{r.name}</td>
-                  <td className="p-2">{r.rank}</td>
-                  <td className="p-2 text-center">{r.present}</td>
-                  <td className="p-2 text-center">{r.excused}</td>
-                  <td className="p-2 text-center">{r.unexcused}</td>
-                  <td className="p-2 text-center">{r.total}</td>
-                  <td className="p-2 text-center">
-                    <span className={`inline-flex items-center justify-center min-w-[56px] px-2 py-1 rounded-full text-xs ${r.pct>=80?'bg-emerald-50 border border-emerald-300 text-emerald-700': r.pct>=60?'bg-amber-50 border border-amber-300 text-amber-700':'bg-rose-50 border border-rose-300 text-rose-700'}`}>
-                      {r.total > 0 ? `${r.pct}%` : '—'}
-                    </span>
-                  </td>
+
+        {/* ✅ جدول الإحصائيات — Scroll أفقي على الموبايل */}
+        <div className="rounded-2xl border">
+          <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
+            <table className="table-auto w-full min-w-[880px] text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-2 text-start">الاسم</th>
+                  <th className="p-2 text-start">الرتبة</th>
+                  <th className="p-2 text-center">حضور</th>
+                  <th className="p-2 text-center">غياب بعذر</th>
+                  <th className="p-2 text-center">غياب بدون عذر</th>
+                  <th className="p-2 text-center">الإجمالي</th>
+                  <th className="p-2 text-center">نسبة الحضور</th>
                 </tr>
-              ))}
-              {stats.length === 0 && (
-                <tr><td className="p-3 text-center text-gray-500" colSpan={7}>لا توجد بيانات لعرضها</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {stats.map(r => (
+                  <tr key={r.member_id} className="border-t">
+                    <td className="p-2">{r.name}</td>
+                    <td className="p-2">{r.rank}</td>
+                    <td className="p-2 text-center">{r.present}</td>
+                    <td className="p-2 text-center">{r.excused}</td>
+                    <td className="p-2 text-center">{r.unexcused}</td>
+                    <td className="p-2 text-center">{r.total}</td>
+                    <td className="p-2 text-center">
+                      <span className={`inline-flex items-center justify-center min-w-[56px] px-2 py-1 rounded-full text-xs ${r.pct>=80?'bg-emerald-50 border border-emerald-300 text-emerald-700': r.pct>=60?'bg-amber-50 border border-amber-300 text-amber-700':'bg-rose-50 border border-rose-300 text-rose-700'}`}>
+                        {r.total > 0 ? `${r.pct}%` : '—'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {stats.length === 0 && (
+                  <tr><td className="p-3 text-center text-gray-500" colSpan={7}>لا توجد بيانات لعرضها</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </div>
