@@ -322,7 +322,7 @@ export default function TeamFinance() {
         left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-        diagonal: {}, // Added to satisfy the Borders interface
+        diagonal: {},
       }
       const teamFills = ['FFF8F9FA', 'FFF3F4F6'] // تظليل متناوب لكل فريق
 
@@ -383,8 +383,8 @@ export default function TeamFinance() {
         budgets.filter((b:any)=> b.term_id === rId).forEach(b => teamIdsSet.add(b.team_id))
         exps.filter((e:any)=> e.term_id === rId).forEach(e => teamIdsSet.add(e.team_id))
         const teamIds = Array.from(teamIdsSet).sort((a,b)=>{
-          const na = teamsMap.get(a) || a
-          const nb = teamsMap.get(b) || b
+          const na = (teamsMap.get(a) || a)
+          const nb = (teamsMap.get(b) || b)
           return na.localeCompare(nb, 'ar')
         })
 
@@ -430,11 +430,10 @@ export default function TeamFinance() {
             row.getCell(9).numFmt = '#,##0.00'
           }
 
-          // سطر فاصل فاضي بين كل فريق والتاني (بدون حدود/تظليل لترك مسافة بيضاء)
+          // سطر فاصل فاضي بين كل فريق والتاني
           ws.addRow(['','','','','','','','',''])
         }
 
-        // لو مفيش فرق/بيانات، نحط Row واحد يقول No data
         if (teamIds.length === 0) {
           addDataRow(ws, ['No data','','','','','','','',''])
         }
@@ -467,10 +466,11 @@ export default function TeamFinance() {
       <PageLoader visible={loading} text="جاري تحميل البيانات..." />
       <h1 className="text-xl font-bold">الميزانية (الفريق) — تسجيل المصروفات</h1>
 
-      <div className="grid md:grid-cols-3 gap-3 items-end">
+      {/* فلاتر أعلى الصفحة */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
         <div className={`${(isAdmin || isGlobalFinance) ? '' : 'opacity-60 pointer-events-none'}`}>
           <label className="text-sm">الفريق</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={teamId} onChange={e=>setTeamId(e.target.value)}>
+          <select className="border rounded-xl p-2 w-full min-w-0 cursor-pointer" value={teamId} onChange={e=>setTeamId(e.target.value)}>
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           {!(isAdmin || isGlobalFinance) && <div className="text-xs text-gray-500">لا يمكن تغيير الفريق إلا للأدمن/المسؤول العام</div>}
@@ -478,14 +478,14 @@ export default function TeamFinance() {
 
         <div>
           <label className="text-sm">الترم</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
+          <select className="border rounded-xl p-2 w-full min-w-0 cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
             {terms.map(t => <option key={t.id} value={t.id}>{t.year} — {t.name}</option>)}
           </select>
         </div>
       </div>
 
       {/* بطاقات الميزانية */}
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="p-4 rounded-2xl border">
           <div className="text-xs text-gray-500">ميزانية الترم</div>
           <div className="text-2xl font-bold">{budget !== null ? egp(budget) : '—'}</div>
@@ -506,20 +506,20 @@ export default function TeamFinance() {
       {gate.canWriteExpense(teamId) && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">إضافة مصروف</h2>
-          <div className="grid md:grid-cols-5 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
             <div>
               <label className="text-sm">التاريخ</label>
               <input
                 type="date"
-                className="border rounded-xl p-2 w-full"
+                className="border rounded-xl p-2 w-full min-w-0"
                 value={exDate}
                 onChange={e=>setExDate(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2">
+            <div className="sm:col-span-2 md:col-span-2">
               <label className="text-sm">اسم المنتج</label>
               <input
-                className="border rounded-xl p-2 w-full"
+                className="border rounded-xl p-2 w-full min-w-0"
                 value={exName}
                 onChange={e=>setExName(e.target.value)}
                 placeholder="مثلاً: أدوات..."
@@ -527,13 +527,13 @@ export default function TeamFinance() {
             </div>
             <div>
               <label className="text-sm">العدد</label>
-              <input type="number" min={1} className="border rounded-xl p-2 w-full" value={exQty} onChange={e=>setExQty(e.target.value as any)} />
+              <input type="number" min={1} className="border rounded-xl p-2 w-full min-w-0" value={exQty} onChange={e=>setExQty(e.target.value as any)} />
             </div>
             <div>
               <label className="text-sm">سعر القطعة</label>
-              <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full" value={exUnit} onChange={e=>setExUnit(e.target.value as any)} />
+              <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full min-w-0" value={exUnit} onChange={e=>setExUnit(e.target.value as any)} />
             </div>
-            <div className="md:col-span-5 flex justify-end">
+            <div className="sm:col-span-2 md:col-span-5 flex justify-end">
               <LoadingButton loading={savingExp} onClick={addExpense}>إضافة مصروف</LoadingButton>
             </div>
           </div>
@@ -545,10 +545,10 @@ export default function TeamFinance() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">تصدير Excel (XLSX)</h2>
 
-          <div className="grid md:grid-cols-4 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 items-end">
             <div>
-              <label className="text-sm">وضع التصدير</label>
-              <select className="border rounded-xl p-2 w-full" value={exportMode} onChange={e=>setExportMode(e.target.value as ExportMode)}>
+              <label className="text-sm">محتوى الExcel</label>
+              <select className="border rounded-xl p-2 w-full min-w-0" value={exportMode} onChange={e=>setExportMode(e.target.value as ExportMode)}>
                 <option value="term">الترم الحالي — شيت للترم</option>
                 <option value="year">سنة معيّنة — شيت لكل ترم</option>
                 <option value="all">كل الترمات — شيت لكل ترم</option>
@@ -557,8 +557,8 @@ export default function TeamFinance() {
 
             {exportMode === 'term' && (
               <div>
-                <label className="text-sm">الترم المختار</label>
-                <select className="border rounded-xl p-2 w-full" value={termId} onChange={e=>setTermId(e.target.value)}>
+                <label className="text-sm">الترم </label>
+                <select className="border rounded-xl p-2 w-full min-w-0" value={termId} onChange={e=>setTermId(e.target.value)}>
                   {terms.map(t => <option key={t.id} value={t.id}>{t.year} — {t.name}</option>)}
                 </select>
               </div>
@@ -568,13 +568,13 @@ export default function TeamFinance() {
               <>
                 <div>
                   <label className="text-sm">السنة</label>
-                  <select className="border rounded-xl p-2 w-full" value={exportYear} onChange={e=>setExportYear(Number(e.target.value))}>
+                  <select className="border rounded-xl p-2 w-full min-w-0" value={exportYear} onChange={e=>setExportYear(Number(e.target.value))}>
                     {years.map(y => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-sm">نطاق الفرق</label>
-                  <select className="border rounded-xl p-2 w-full" value={exportTeamScope} onChange={e=>setExportTeamScope(e.target.value as any)}>
+                  <select className="border rounded-xl p-2 w-full min-w-0" value={exportTeamScope} onChange={e=>setExportTeamScope(e.target.value as any)}>
                     <option value="all">كل الفرق</option>
                     <option value="one">فريق واحد</option>
                   </select>
@@ -582,7 +582,7 @@ export default function TeamFinance() {
                 {exportTeamScope === 'one' && (
                   <div>
                     <label className="text-sm">الفريق</label>
-                    <select className="border rounded-xl p-2 w-full" value={exportTeamId} onChange={e=>setExportTeamId(e.target.value)}>
+                    <select className="border rounded-xl p-2 w-full min-w-0" value={exportTeamId} onChange={e=>setExportTeamId(e.target.value)}>
                       {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
@@ -591,7 +591,7 @@ export default function TeamFinance() {
             )}
 
             <div className="md:col-span-1 text-end">
-              <LoadingButton loading={exporting} onClick={handleExport}>
+              <LoadingButton className="w-full sm:w-auto" loading={exporting} onClick={handleExport}>
                 {exporting ? 'جارِ التحضير...' : 'تصدير XLSX'}
               </LoadingButton>
             </div>
@@ -606,15 +606,15 @@ export default function TeamFinance() {
       {/* Table */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">المصروفات</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+          <table className="w-full min-w-[720px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 text-start">التاريخ</th>
+                <th className="p-2 text-start whitespace-nowrap">التاريخ</th>
                 <th className="p-2 text-start">المنتج</th>
-                <th className="p-2 text-center">العدد</th>
-                <th className="p-2 text-center">سعر القطعة</th>
-                <th className="p-2 text-center">الإجمالي</th>
+                <th className="p-2 text-center whitespace-nowrap">العدد</th>
+                <th className="p-2 text-center whitespace-nowrap">سعر القطعة</th>
+                <th className="p-2 text-center whitespace-nowrap">الإجمالي</th>
               </tr>
             </thead>
             <tbody>
