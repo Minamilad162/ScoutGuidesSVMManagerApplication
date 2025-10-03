@@ -71,12 +71,12 @@ function normalizePayload(p: any) {
     remaining:      pickAny(p, 'remaining', 'remaining_amount'),
     amount:         pickAny(p, 'amount', 'amount_total'),
     missing:        Array.isArray(p?.missing) ? p.missing : undefined,
-dates: (
-  Array.isArray(p?.dates) ? p.dates
-  : Array.isArray(p?.absence_dates) ? p.absence_dates
-  : Array.isArray(p?.last_three_dates) ? p.last_three_dates
-  : undefined
-),
+    dates: (
+      Array.isArray(p?.dates) ? p.dates
+      : Array.isArray(p?.absence_dates) ? p.absence_dates
+      : Array.isArray(p?.last_three_dates) ? p.last_three_dates
+      : undefined
+    ),
     note:           pickAny(p, 'note', 'message'),
     extra:          p
   }
@@ -136,8 +136,6 @@ const typeMeta: Record<string, {
       return `${t}${when ? ` — الموعد: ${fmtDateTime(when)}` : ''}${loc ? ` — المكان: ${loc}` : ''}${body ? ` — ${body}` : ''}`
     }
   },
-
-  // ✅ مُحدّث: يعرض التواريخ الثلاثة من payload.dates
   equipier_3_absences: {
     title: 'تحذير غياب متتالٍ (3 مرات)',
     tone: 'warn',
@@ -150,8 +148,6 @@ const typeMeta: Record<string, {
       return `العضو ${name} (فريق ${team}) تغيّب 3 اجتماعات متتالية في التواريخ: ${datesTxt}`
     }
   },
-
-  // ✅ مواد العُهده
   materials_return_all_ok: {
     title: 'تم تسليم العهدة كاملة',
     tone: 'info',
@@ -262,11 +258,12 @@ export default function Notifications() {
     <div className="p-6 space-y-4">
       <PageLoader visible={loading} text="جاري التحميل..." />
 
+      {/* هيدر مرن */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold">الإشعارات</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <input
-            className="border rounded-xl p-2 w-60"
+            className="border rounded-xl p-2 w-full sm:w-64 md:w-72 min-w-0"
             placeholder="ابحث (فريق، شخص، عنوان...)"
             value={search}
             onChange={e=>setSearch(e.target.value)}
@@ -275,12 +272,17 @@ export default function Notifications() {
             <input type="checkbox" checked={showRead} onChange={e=>setShowRead(e.target.checked)} />
             عرض المقروء
           </label>
-          <button className="btn border" onClick={markAllRead} disabled={markingAll || rows.length===0}>
+          <button
+            className="btn border w-full sm:w-auto"
+            onClick={markAllRead}
+            disabled={markingAll || rows.length===0}
+          >
             {markingAll ? '...' : 'تحديد الكل كمقروء'}
           </button>
         </div>
       </div>
 
+      {/* الكروت */}
       <div className="space-y-3">
         {filtered.map(n => {
           const meta = typeMeta[n.ntype]
@@ -293,19 +295,33 @@ export default function Notifications() {
           const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
 
           return (
-            <div key={n.id} className={`rounded-2xl border p-4 ${clsTone(tone)} ${n.is_read ? 'opacity-60' : ''}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1">
+            <div
+              key={n.id}
+              className={`rounded-2xl border p-4 ${clsTone(tone)} ${n.is_read ? 'opacity-60' : ''}`}
+            >
+              <div className="flex flex-col sm:flex-row items-start sm:items-stretch justify-between gap-3">
+                {/* المحتوى */}
+                <div className="flex-1 min-w-0">
+                  {/* ترويسة الكارت */}
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{icon}</span>
-                    <div className="font-semibold">{title}</div>
-                    {!n.is_read && <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">جديد</span>}
-                    <span className="text-xs text-gray-500 ml-auto">{timeAgo(n.created_at)}</span>
+                    <div className="font-semibold break-words">{title}</div>
+                    {!n.is_read && (
+                      <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                        جديد
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-500 ml-auto whitespace-nowrap">
+                      {timeAgo(n.created_at)}
+                    </span>
                   </div>
 
-                  <div className="mt-1 text-sm leading-6 whitespace-pre-line">{text}</div>
+                  {/* النص */}
+                  <div className="mt-1 text-sm leading-6 whitespace-pre-line break-words">
+                    {text}
+                  </div>
 
-                  {/* Chips مختصرة وواضحة */}
+                  {/* Chips */}
                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
                     {np.teamName && <span className="px-2 py-1 rounded-full bg-white border">فريق: <b>{np.teamName}</b></span>}
                     {np.memberName && <span className="px-2 py-1 rounded-full bg-white border">الاسم: <b>{np.memberName}</b></span>}
@@ -321,40 +337,42 @@ export default function Notifications() {
                   {/* تفاصيل مختصرة */}
                   <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
                     {(np.from || np.to) && (
-                      <div className="bg-white/70 border rounded-xl p-2">
+                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
                         <div className="text-gray-600">الفترة</div>
-                        <div><b>{fmtDateTime(np.from)}</b> — <b>{fmtDateTime(np.to)}</b></div>
+                        <div className="break-words">
+                          <b>{fmtDateTime(np.from)}</b> — <b>{fmtDateTime(np.to)}</b>
+                        </div>
                       </div>
                     )}
 
                     {np.meetingDate && (
-                      <div className="bg-white/70 border rounded-xl p-2">
+                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
                         <div className="text-gray-600">تاريخ الاجتماع</div>
                         <div><b>{fmtDate(np.meetingDate)}</b></div>
                       </div>
                     )}
 
                     {Array.isArray(datesArr) && datesArr.length === 3 && (
-                      <div className="bg-white/70 border rounded-xl p-2">
+                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
                         <div className="text-gray-600">تواريخ الغياب</div>
-                        <div><b>{datesArr.map(fmtDate).join('، ')}</b></div>
+                        <div className="break-words"><b>{datesArr.map(fmtDate).join('، ')}</b></div>
                       </div>
                     )}
 
                     {np.mtype && (
-                      <div className="bg-white/70 border rounded-xl p-2">
+                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
                         <div className="text-gray-600">نوع اليوم</div>
                         <div><b>{np.mtype === 'preparation' ? 'تحضير' : np.mtype === 'meeting' ? 'اجتماع' : np.mtype}</b></div>
                       </div>
                     )}
                     {np.remaining !== undefined && (
-                      <div className="bg-white/70 border rounded-xl p-2">
+                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
                         <div className="text-gray-600">المتبقي</div>
                         <div><b>{np.remaining} EGP</b></div>
                       </div>
                     )}
                     {np.amount !== undefined && (
-                      <div className="bg-white/70 border rounded-xl p-2">
+                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
                         <div className="text-gray-600">المبلغ</div>
                         <div><b>{np.amount} EGP</b></div>
                       </div>
@@ -362,13 +380,18 @@ export default function Notifications() {
                   </div>
                 </div>
 
-                <div className="shrink-0">
+                {/* زرار الأكشن */}
+                <div className="shrink-0 w-full sm:w-auto sm:text-right">
                   {!n.is_read ? (
-                    <button className="btn border" disabled={marking===n.id} onClick={()=>markRead(n.id)}>
+                    <button
+                      className="btn border w-full sm:w-auto mt-3 sm:mt-0"
+                      disabled={marking===n.id}
+                      onClick={()=>markRead(n.id)}
+                    >
                       {marking===n.id ? '...' : 'تمّت القراءة'}
                     </button>
                   ) : (
-                    <span className="text-xs text-gray-500">مقروء</span>
+                    <span className="text-xs text-gray-500 mt-2 sm:mt-0 block sm:inline">مقروء</span>
                   )}
                 </div>
               </div>
