@@ -104,23 +104,44 @@ export default function AdminEvents() {
 
       <h1 className="text-xl font-bold">إنشاء فعالية (إشعار لجميع المستخدمين)</h1>
 
+      {/* فورم مرن */}
       <section className="card space-y-3">
-        <div className="grid md:grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+          <div className="min-w-0">
             <label className="text-sm">العنوان</label>
-            <input className="border rounded-xl p-2 w-full" value={title} onChange={e=>setTitle(e.target.value)} placeholder="مثال: اجتماع السبت" />
+            <input
+              className="border rounded-xl p-2 w-full"
+              value={title}
+              onChange={e=>setTitle(e.target.value)}
+              placeholder="مثال: اجتماع السبت"
+            />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm">الموعد</label>
-            <input type="datetime-local" className="border rounded-xl p-2 w-full" value={when} onChange={e=>setWhen(e.target.value)} />
+            <input
+              type="datetime-local"
+              className="border rounded-xl p-2 w-full"
+              value={when}
+              onChange={e=>setWhen(e.target.value)}
+            />
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 min-w-0">
             <label className="text-sm">المكان</label>
-            <input className="border rounded-xl p-2 w-full" value={location} onChange={e=>setLocation(e.target.value)} placeholder="مثال: مقر الكشافة" />
+            <input
+              className="border rounded-xl p-2 w-full"
+              value={location}
+              onChange={e=>setLocation(e.target.value)}
+              placeholder="مثال: مقر الكشافة"
+            />
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 min-w-0">
             <label className="text-sm">التفاصيل</label>
-            <textarea className="border rounded-xl p-2 w-full min-h-[100px]" value={content} onChange={e=>setContent(e.target.value)} placeholder="تفاصيل إضافية..." />
+            <textarea
+              className="border rounded-xl p-2 w-full min-h-[120px] resize-y"
+              value={content}
+              onChange={e=>setContent(e.target.value)}
+              placeholder="تفاصيل إضافية..."
+            />
           </div>
         </div>
 
@@ -129,35 +150,51 @@ export default function AdminEvents() {
         </div>
       </section>
 
+      {/* جدول Responsive بسكرول أفقي */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">الفعاليات السابقة</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+
+        <div
+          className="border rounded-2xl overflow-x-auto"
+          dir="ltr"
+          style={{ WebkitOverflowScrolling: 'touch' as any }}
+        >
+          <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start">العنوان</th>
-                <th className="p-2 text-start">الموعد</th>
+                <th className="p-2 text-start whitespace-nowrap">الموعد</th>
                 <th className="p-2 text-start">المكان</th>
                 <th className="p-2 text-start">التفاصيل</th>
-                <th className="p-2 text-center">حذف</th>
+                <th className="p-2 text-center whitespace-nowrap">حذف</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.id} className="border-t align-top">
-                  <td className="p-2">{r.title}</td>
-                  <td className="p-2">{new Date(r.starts_at).toLocaleString()}</td>
-                  <td className="p-2">{r.location || '—'}</td>
-                  <td className="p-2 whitespace-pre-wrap">{r.content || '—'}</td>
+                  <td className="p-2 break-words">{r.title}</td>
+                  <td className="p-2 whitespace-nowrap">
+                    <time dateTime={r.starts_at}>{new Date(r.starts_at).toLocaleString()}</time>
+                  </td>
+                  <td className="p-2 break-words">{r.location || '—'}</td>
+                  <td className="p-2 whitespace-pre-wrap break-words">
+                    {r.content || '—'}
+                  </td>
                   <td className="p-2 text-center">
-                    <button className="btn border" disabled={deleting===r.id} onClick={()=>softDelete(r.id)}>
+                    <button
+                      className="btn border"
+                      disabled={deleting===r.id}
+                      onClick={()=>softDelete(r.id)}
+                    >
                       {deleting===r.id ? '...' : 'حذف'}
                     </button>
                   </td>
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد فعاليات</td></tr>
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد فعاليات</td>
+                </tr>
               )}
             </tbody>
           </table>
