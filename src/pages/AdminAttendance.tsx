@@ -355,8 +355,8 @@ export default function AdminAttendance() {
       <section className="card space-y-3">
         <h2 className="text-lg font-semibold">إحصائيات الحضور (Chef de legion)</h2>
 
-        <div className="grid md:grid-cols-5 gap-2 items-end">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
+          <div className="min-w-0">
             <label className="text-sm">الفريق</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={readTeamId} onChange={e=>setReadTeamId(e.target.value)}>
               <option value="all">الكل</option>
@@ -364,7 +364,7 @@ export default function AdminAttendance() {
             </select>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <label className="text-sm">النطاق</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={readScope} onChange={e=>setReadScope(e.target.value as ScopeRead)}>
               <option value="range">مدى (من/إلى)</option>
@@ -376,16 +376,16 @@ export default function AdminAttendance() {
           {/* مدى */}
           {readScope === 'range' && (
             <>
-              <div>
+              <div className="min-w-0">
                 <label className="text-sm">من</label>
                 <input type="date" className="border rounded-xl p-2 w-full" value={readFrom} onChange={e=>setReadFrom(e.target.value)} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="text-sm">إلى</label>
                 <input type="date" className="border rounded-xl p-2 w-full" value={readTo} onChange={e=>setReadTo(e.target.value)} />
               </div>
-              <div className="text-end">
-                <button className="btn border" onClick={loadStats}>عرض الإحصائيات</button>
+              <div className="text-end sm:col-span-2 md:col-span-1">
+                <button className="btn border w-full sm:w-auto" onClick={loadStats}>عرض الإحصائيات</button>
               </div>
             </>
           )}
@@ -393,13 +393,17 @@ export default function AdminAttendance() {
           {/* سنة */}
           {readScope === 'year' && (
             <>
-              <div>
+              <div className="min-w-0">
                 <label className="text-sm">السنة</label>
-                <input type="number" className="border rounded-xl p-2 w-full" value={readYear}
-                       onChange={e=>setReadYear(Number(e.target.value)||new Date().getFullYear())}/>
+                <input
+                  type="number"
+                  className="border rounded-xl p-2 w-full"
+                  value={readYear}
+                  onChange={e=>setReadYear(Number(e.target.value)||new Date().getFullYear())}
+                />
               </div>
               <div className="md:col-span-2 text-end">
-                <button className="btn border" onClick={loadStats}>عرض الإحصائيات</button>
+                <button className="btn border w-full sm:w-auto" onClick={loadStats}>عرض الإحصائيات</button>
               </div>
             </>
           )}
@@ -407,7 +411,7 @@ export default function AdminAttendance() {
           {/* ترم */}
           {readScope === 'term' && (
             <>
-              <div className="md:col-span-2">
+              <div className="md:col-span-2 min-w-0">
                 <label className="text-sm">الترم</label>
                 <select className="border rounded-xl p-2 w-full cursor-pointer" value={readTermId} onChange={e=>setReadTermId(e.target.value)}>
                   {terms.map(t => (
@@ -416,39 +420,39 @@ export default function AdminAttendance() {
                 </select>
               </div>
               <div className="text-end">
-                <button className="btn border" onClick={loadStats}>عرض الإحصائيات</button>
+                <button className="btn border w-full sm:w-auto" onClick={loadStats}>عرض الإحصائيات</button>
               </div>
             </>
           )}
         </div>
 
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-2xl overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px] md:min-w-0">
             <thead className="bg-gray-100">
               <tr>
-                {showTeamColumnInRead && <th className="p-2 text-start">الفريق</th>}
+                {showTeamColumnInRead && <th className="p-2 text-start whitespace-nowrap">الفريق</th>}
                 <th className="p-2 text-start">الاسم</th>
-                <th className="p-2 text-start">الرتبة</th>
-                <th className="p-2 text-center">حضور</th>
-                <th className="p-2 text-center">غياب بعذر</th>
-                <th className="p-2 text-center">غياب بدون عذر</th>
-                <th className="p-2 text-center">الإجمالي</th>
-                <th className="p-2 text-center">نسبة الحضور</th>
+                <th className="p-2 text-start whitespace-nowrap">الرتبة</th>
+                <th className="p-2 text-center whitespace-nowrap">حضور</th>
+                <th className="p-2 text-center whitespace-nowrap">غياب بعذر</th>
+                <th className="p-2 text-center whitespace-nowrap">غياب بدون عذر</th>
+                <th className="p-2 text-center whitespace-nowrap">الإجمالي</th>
+                <th className="p-2 text-center whitespace-nowrap">نسبة الحضور</th>
               </tr>
             </thead>
             <tbody>
               {readRows.map((r:any, i:number) => {
                 const pct = r.total > 0 ? Math.round((r.present / r.total) * 100) : 0
                 return (
-                  <tr key={i} className="border-t">
-                    {showTeamColumnInRead && <td className="p-2">{r.team_name}</td>}
-                    <td className="p-2">{r.name}</td>
-                    <td className="p-2">{r.rank}</td>
-                    <td className="p-2 text-center">{r.present}</td>
-                    <td className="p-2 text-center">{r.excused}</td>
-                    <td className="p-2 text-center">{r.unexcused}</td>
-                    <td className="p-2 text-center">{r.total}</td>
-                    <td className="p-2 text-center">
+                  <tr key={i} className="border-t align-middle">
+                    {showTeamColumnInRead && <td className="p-2 break-words">{r.team_name}</td>}
+                    <td className="p-2 break-words">{r.name}</td>
+                    <td className="p-2 break-words">{r.rank}</td>
+                    <td className="p-2 text-center whitespace-nowrap">{r.present}</td>
+                    <td className="p-2 text-center whitespace-nowrap">{r.excused}</td>
+                    <td className="p-2 text-center whitespace-nowrap">{r.unexcused}</td>
+                    <td className="p-2 text-center whitespace-nowrap">{r.total}</td>
+                    <td className="p-2 text-center whitespace-nowrap">
                       <span className={`inline-flex items-center justify-center min-w-[56px] px-2 py-1 rounded-full text-xs ${pct>=80?'bg-emerald-50 border border-emerald-300 text-emerald-700': pct>=60?'bg-amber-50 border border-amber-300 text-amber-700':'bg-rose-50 border border-rose-300 text-rose-700'}`}>
                         {r.total > 0 ? `${pct}%` : '—'}
                       </span>
@@ -456,7 +460,13 @@ export default function AdminAttendance() {
                   </tr>
                 )
               })}
-              {readRows.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={showTeamColumnInRead ? 8 : 7}>لا توجد بيانات</td></tr>}
+              {readRows.length === 0 && (
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={showTeamColumnInRead ? 8 : 7}>
+                    لا توجد بيانات
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -466,19 +476,19 @@ export default function AdminAttendance() {
       <section className="card space-y-3">
         <h2 className="text-lg font-semibold">تسجيل حضور — (Chef de legion فقط)</h2>
 
-        <div className="grid md:grid-cols-5 gap-2 items-end">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
+          <div className="min-w-0">
             <label className="text-sm">الفريق</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={writeTeamId} onChange={e=>setWriteTeamId(e.target.value)}>
               <option value="all">الكل</option>
               {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm">التاريخ</label>
             <input type="date" className="border rounded-xl p-2 w-full" value={writeDate} onChange={e=>setWriteDate(e.target.value)} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm">نوع اليوم</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={writeType} onChange={e=>setWriteType(e.target.value as any)}>
               <option value="preparation">تحضير</option>
@@ -490,15 +500,15 @@ export default function AdminAttendance() {
           </div>
         </div>
 
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-2xl overflow-x-auto">
+          <table className="w-full text-sm min-w-[860px] md:min-w-0">
             <thead className="bg-gray-100">
               <tr>
-                {showTeamColumnInWrite && <th className="p-2 text-start">الفريق</th>}
+                {showTeamColumnInWrite && <th className="p-2 text-start whitespace-nowrap">الفريق</th>}
                 <th className="p-2 text-start">الاسم</th>
-                <th className="p-2 text-center">حاضر</th>
-                <th className="p-2 text-center">غائب</th>
-                <th className="p-2 text-center">بعذر؟</th>
+                <th className="p-2 text-center whitespace-nowrap">حاضر</th>
+                <th className="p-2 text-center whitespace-nowrap">غائب</th>
+                <th className="p-2 text-center whitespace-nowrap">بعذر؟</th>
                 <th className="p-2 text-start">العذر</th>
               </tr>
             </thead>
@@ -509,20 +519,20 @@ export default function AdminAttendance() {
                 const absent = st.present === false
                 return (
                   <tr key={m.id} className="border-t align-top">
-                    {showTeamColumnInWrite && <td className="p-2">{teamNameMap.get(m.team_id) || '—'}</td>}
-                    <td className="p-2">{m.full_name}</td>
-                    <td className="p-2 text-center">
+                    {showTeamColumnInWrite && <td className="p-2 break-words">{teamNameMap.get(m.team_id) || '—'}</td>}
+                    <td className="p-2 break-words">{m.full_name}</td>
+                    <td className="p-2 text-center whitespace-nowrap">
                       <input type="radio" name={`att-${m.id}`} checked={present} onChange={()=>setPresent(m.id, true)} />
                     </td>
-                    <td className="p-2 text-center">
+                    <td className="p-2 text-center whitespace-nowrap">
                       <input type="radio" name={`att-${m.id}`} checked={absent} onChange={()=>setPresent(m.id, false)} />
                     </td>
-                    <td className="p-2 text-center">
+                    <td className="p-2 text-center whitespace-nowrap">
                       <input type="checkbox" disabled={!absent} checked={!!st.is_excused} onChange={e=>setExcused(m.id, e.target.checked)} />
                     </td>
                     <td className="p-2">
                       <input
-                        className="border rounded-xl p-2 w-full"
+                        className="border rounded-xl p-2 w-full min-w-0"
                         placeholder="سبب الغياب (اختياري)"
                         value={st.excuse_note || ''}
                         onChange={e=>setNote(m.id, e.target.value)}
@@ -532,7 +542,13 @@ export default function AdminAttendance() {
                   </tr>
                 )
               })}
-              {chefs.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={showTeamColumnInWrite ? 6 : 5}>لا يوجد Chef de legion مطابق</td></tr>}
+              {chefs.length === 0 && (
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={showTeamColumnInWrite ? 6 : 5}>
+                    لا يوجد Chef de legion مطابق
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
