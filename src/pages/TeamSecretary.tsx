@@ -48,30 +48,29 @@ export default function TeamSecretary() {
 
   const AVATARS_BUCKET = 'avatars';
 
-// لو الباكت مش موجودة هيرجع null وينبّه فقط، بدون ما يوقف بقية الحفظ
-async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, toast?: any) {
-  try {
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `${teamId}/${memberId}-${Date.now()}.${ext}`
-    const { error: upErr } = await supabase
-      .storage.from(AVATARS_BUCKET)
-      .upload(path, file, { upsert: true, contentType: file.type })
+  // لو الباكت مش موجودة هيرجع null وينبّه فقط، بدون ما يوقف بقية الحفظ
+  async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, toast?: any) {
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      const path = `${teamId}/${memberId}-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase
+        .storage.from(AVATARS_BUCKET)
+        .upload(path, file, { upsert: true, contentType: file.type })
 
-    if (upErr) {
-      if (/bucket not found/i.test(upErr.message)) {
-        toast?.error?.('Bucket باسم "avatars" غير موجود في Storage — أنشئه ثم أعد المحاولة.')
-        return null
+      if (upErr) {
+        if (/bucket not found/i.test(upErr.message)) {
+          toast?.error?.('Bucket باسم "avatars" غير موجود في Storage — أنشئه ثم أعد المحاولة.')
+          return null
+        }
+        throw upErr
       }
-      throw upErr
+      const { data: pub } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path)
+      return pub.publicUrl as string
+    } catch (e:any) {
+      toast?.error?.(e.message || 'تعذر رفع الصورة')
+      return null
     }
-    const { data: pub } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path)
-    return pub.publicUrl as string
-  } catch (e:any) {
-    toast?.error?.(e.message || 'تعذر رفع الصورة')
-    return null
   }
-}
-
 
   useEffect(() => { init() }, [])
   async function init() {
@@ -167,13 +166,12 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
       if (error) throw error
       const newId = row?.id as string
 
-        if (newAvatar && newId) {
-          const url = await uploadAvatarOrWarn(newAvatar, teamId, newId, toast)
-          if (url) {
-            await supabase.from('members').update({ avatar_url: url }).eq('id', newId)
-          }
+      if (newAvatar && newId) {
+        const url = await uploadAvatarOrWarn(newAvatar, teamId, newId, toast)
+        if (url) {
+          await supabase.from('members').update({ avatar_url: url }).eq('id', newId)
         }
-
+      }
 
       toast.success('تم إضافة الإكويبيير')
       setNewName(''); setNewGuardian(''); setNewPhone(''); setNewDOB(''); setNewAvatar(null)
@@ -285,10 +283,14 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
       {(isAdmin || isGlobalSec) ? (
         <div className="mb-3">
           <label className="text-sm">الفريق</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={teamId} onChange={e=>{
-            const id = e.target.value; setTeamId(id)
-            const t = teams.find(x=>x.id===id); setTeamName(t?.name || '')
-          }}>
+          <select
+            className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
+            value={teamId}
+            onChange={e=>{
+              const id = e.target.value; setTeamId(id)
+              const t = teams.find(x=>x.id===id); setTeamName(t?.name || '')
+            }}
+          >
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
@@ -300,7 +302,7 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <button className={`tab ${tab==='equipiers'?'tab-active':''}` } onClick={()=>setTab('equipiers')}>الأولاد (إدارة)</button>
         <button className={`tab ${tab==='attendance'?'tab-active':''}`} onClick={()=>setTab('attendance')}>حضور الاجتماعات</button>
       </div>
@@ -308,48 +310,48 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
       {tab==='equipiers' && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">إضافة ولد جديد</h2>
-          <div className="grid md:grid-cols-5 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
             <div>
               <label className="text-sm">الاسم</label>
-              <input className="border rounded-xl p-2 w-full" value={newName} onChange={e=>setNewName(e.target.value)} />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={newName} onChange={e=>setNewName(e.target.value)} />
             </div>
             <div>
               <label className="text-sm">اسم ولي الأمر</label>
-              <input className="border rounded-xl p-2 w-full" value={newGuardian} onChange={e=>setNewGuardian(e.target.value)} />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={newGuardian} onChange={e=>setNewGuardian(e.target.value)} />
             </div>
             <div>
               <label className="text-sm">هاتف ولي الأمر</label>
-              <input className="border rounded-xl p-2 w-full" value={newPhone} onChange={e=>setNewPhone(e.target.value)} />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={newPhone} onChange={e=>setNewPhone(e.target.value)} />
             </div>
             <div>
               <label className="text-sm">تاريخ الميلاد</label>
-              <input type="date" className="border rounded-xl p-2 w-full" value={newDOB} onChange={e=>setNewDOB(e.target.value)} />
+              <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={newDOB} onChange={e=>setNewDOB(e.target.value)} />
             </div>
 
             {/* ⬇️ صورة (اختياري) */}
-            <div className="md:col-span-2">
+            <div className="sm:col-span-2 md:col-span-2">
               <label className="text-sm">صورة شخصية (اختياري)</label>
-              <input type="file" accept="image/*" onChange={e=>setNewAvatar(e.target.files?.[0] ?? null)} />
+              <input type="file" className="block w-full text-sm" accept="image/*" onChange={e=>setNewAvatar(e.target.files?.[0] ?? null)} />
               {newAvatar && <div className="text-xs text-gray-500 mt-1">الحجم: {(newAvatar.size/1024/1024).toFixed(2)} MB</div>}
             </div>
 
-            <div className="md:col-span-5 text-end">
+            <div className="sm:col-span-2 md:col-span-5 text-end">
               <LoadingButton loading={false} onClick={addEquipier}>إضافة</LoadingButton>
             </div>
           </div>
 
           <h2 className="text-lg font-semibold">قائمة الأولاد</h2>
-          <div className="border rounded-2xl overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+            <table className="w-full min-w-[900px] text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-2 text-start">الاسم</th>
                   <th className="p-2 text-start">ولي الأمر</th>
-                  <th className="p-2 text-start">الهاتف</th>
-                  <th className="p-2 text-start">تاريخ الميلاد</th>
-                  <th className="p-2 text-center">النسبة (الترم)</th>
-                  <th className="p-2 text-center">غياب بعذر/بدون</th>
-                  <th className="p-2 text-center">إجراءات</th>
+                  <th className="p-2 text-start whitespace-nowrap">الهاتف</th>
+                  <th className="p-2 text-start whitespace-nowrap">تاريخ الميلاد</th>
+                  <th className="p-2 text-center whitespace-nowrap">النسبة (الترم)</th>
+                  <th className="p-2 text-center whitespace-nowrap">غياب بعذر/بدون</th>
+                  <th className="p-2 text-center whitespace-nowrap">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -359,37 +361,37 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
                   return (
                     <tr key={m.id} className="border-t">
                       <td className="p-2">{isEditing ? (
-                        <input className="border rounded-xl p-1 w-full" defaultValue={m.full_name} onChange={ev=>setEditDraft(d=>({...d, full_name: ev.target.value}))} />
+                        <input className="border rounded-xl p-1 w-full min-w-0" defaultValue={m.full_name} onChange={ev=>setEditDraft(d=>({...d, full_name: ev.target.value}))} />
                       ) : m.full_name}</td>
                       <td className="p-2">{isEditing ? (
-                        <input className="border rounded-xl p-1 w-full" defaultValue={m.guardian_name || ''} onChange={ev=>setEditDraft(d=>({...d, guardian_name: ev.target.value}))} />
+                        <input className="border rounded-xl p-1 w-full min-w-0" defaultValue={m.guardian_name || ''} onChange={ev=>setEditDraft(d=>({...d, guardian_name: ev.target.value}))} />
                       ) : (m.guardian_name || '—')}</td>
-                      <td className="p-2">{isEditing ? (
-                        <input className="border rounded-xl p-1 w-full" defaultValue={m.guardian_phone || ''} onChange={ev=>setEditDraft(d=>({...d, guardian_phone: ev.target.value}))} />
+                      <td className="p-2 whitespace-nowrap">{isEditing ? (
+                        <input className="border rounded-xl p-1 w-full min-w-0" defaultValue={m.guardian_phone || ''} onChange={ev=>setEditDraft(d=>({...d, guardian_phone: ev.target.value}))} />
                       ) : (m.guardian_phone || '—')}</td>
-                      <td className="p-2">{isEditing ? (
-                        <input type="date" className="border rounded-xl p-1 w-full" defaultValue={m.birth_date || ''} onChange={ev=>setEditDraft(d=>({...d, birth_date: ev.target.value}))} />
+                      <td className="p-2 whitespace-nowrap">{isEditing ? (
+                        <input type="date" className="border rounded-xl p-1 w-full min-w-0" defaultValue={m.birth_date || ''} onChange={ev=>setEditDraft(d=>({...d, birth_date: ev.target.value}))} />
                       ) : (m.birth_date || '—')}</td>
                       <td className="p-2 text-center">
-                        <span className="px-2 py-1 rounded-full bg-white border text-xs">
+                        <span className="px-2 py-1 rounded-full bg-white border text-[11px] sm:text-xs whitespace-nowrap">
                           {c.present} من {c.total} — {c.total ? Math.round((c.present/c.total)*100) : 0}%
                         </span>
                       </td>
                       <td className="p-2 text-center">
-                        <span className="px-2 py-1 rounded-full bg-white border text-xs">
+                        <span className="px-2 py-1 rounded-full bg-white border text-[11px] sm:text-xs whitespace-nowrap">
                           بعذر {c.absent_excused} / بدون {c.absent_unexcused}
                         </span>
                       </td>
                       <td className="p-2 text-center">
                         {!isEditing ? (
-                          <button className="btn border" onClick={()=>startEdit(m)}>تعديل</button>
+                          <button className="btn border text-xs sm:text-sm" onClick={()=>startEdit(m)}>تعديل</button>
                         ) : (
                           <div className="flex gap-2 justify-center">
-                            <button className="btn border" onClick={saveEdit}>حفظ</button>
-                            <button className="btn border" onClick={cancelEdit}>إلغاء</button>
+                            <button className="btn border text-xs sm:text-sm" onClick={saveEdit}>حفظ</button>
+                            <button className="btn border text-xs sm:text-sm" onClick={cancelEdit}>إلغاء</button>
                           </div>
                         )}
-                        <button className="btn border ml-2" onClick={()=>deleteEquipier(m.id)}>حذف</button>
+                        <button className="btn border ml-2 text-xs sm:text-sm" onClick={()=>deleteEquipier(m.id)}>حذف</button>
                       </td>
                     </tr>
                   )
@@ -403,10 +405,10 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
 
       {tab==='attendance' && (
         <section className="space-y-3">
-          <div className="grid md:grid-cols-3 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 items-end">
             <div>
               <label className="text-sm">الترم</label>
-              <select className="border rounded-xl p-2 w-full cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
+              <select className="border rounded-xl p-2 w-full min-w-0 cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
                 {terms.map(t => <option key={t.id} value={t.id}>{t.year} — {t.name}</option>)}
               </select>
             </div>
@@ -414,7 +416,7 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
               <label className="text-sm">تاريخ الاجتماع</label>
               <input
                 type="date"
-                className="border rounded-xl p-2 w-full"
+                className="border rounded-xl p-2 w-full min-w-0"
                 value={meetingDate}
                 onChange={async e=>{
                   const v = e.target.value
@@ -428,14 +430,14 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
             </div>
           </div>
 
-          <div className="border rounded-2xl overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+            <table className="w-full min-w-[900px] text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-2 text-start">الاسم</th>
-                  <th className="p-2 text-center">حضر؟</th>
+                  <th className="p-2 text-center whitespace-nowrap">حضر؟</th>
                   <th className="p-2 text-start">عذر الغياب (إن وُجد)</th>
-                  <th className="p-2 text-center">حضوره في الترم</th>
+                  <th className="p-2 text-center whitespace-nowrap">حضوره في الترم</th>
                 </tr>
               </thead>
               <tbody>
@@ -460,7 +462,7 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
                       <td className="p-2">
                         {!present ? (
                           <input
-                            className="border rounded-xl p-2 w-full"
+                            className="border rounded-xl p-2 w-full min-w-0"
                             placeholder="اكتب العذر (اختياري)"
                             value={reasons[m.id] || ''}
                             onChange={e=>setReasons(r=>({...r, [m.id]: e.target.value}))}
@@ -468,10 +470,10 @@ async function uploadAvatarOrWarn(file: File, teamId: string, memberId: string, 
                         ) : <span className="text-xs text-gray-500">—</span>}
                       </td>
                       <td className="p-2 text-center">
-                        <span className="px-2 py-1 rounded-full bg-white border text-xs">
+                        <span className="px-2 py-1 rounded-full bg-white border text-[11px] sm:text-xs whitespace-nowrap">
                           {c.present} من {c.total} — {c.total ? Math.round((c.present/c.total)*100) : 0}%
                           <br />
-                          <span className="text-[11px] text-gray-600">بعذر {c.absent_excused} / بدون {c.absent_unexcused}</span>
+                          <span className="text-[10px] sm:text-[11px] text-gray-600">بعذر {c.absent_excused} / بدون {c.absent_unexcused}</span>
                         </span>
                       </td>
                     </tr>
