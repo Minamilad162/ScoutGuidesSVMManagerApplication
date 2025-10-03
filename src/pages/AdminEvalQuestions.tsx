@@ -63,7 +63,7 @@ export default function AdminEvalQuestions() {
   async function addQuestion() {
     if (!qText.trim()) return toast.error('أدخل نص السؤال')
     const w = Number(qWeight)
-    if (!Number.isFinite(w) || w < 0 || w > 100) return toast.error('الوزن يجب أن يكون بين 0 و 100')
+    if (!Number.isFinite(w) || w < 0 || w > 100) return toast.error('القيمة يجب أن يكون بين 0 و 100')
 
     setSaving(true)
     try {
@@ -85,7 +85,7 @@ export default function AdminEvalQuestions() {
     setSavingRow(r.id)
     try {
       const w = Number(r.weight)
-      if (!Number.isFinite(w) || w < 0 || w > 100) throw new Error('الوزن يجب أن يكون بين 0 و 100')
+      if (!Number.isFinite(w) || w < 0 || w > 100) throw new Error('القيمة يجب أن يكون بين 0 و 100')
       const { error } = await supabase
         .from('evaluation_questions')
         .update({ question_text: r.question_text.trim(), weight: w, active: r.active })
@@ -122,56 +122,79 @@ export default function AdminEvalQuestions() {
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      {/* Header + فلاتر */}
+      <div className="flex items-start md:items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold">إدارة أسئلة التقييم</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 justify-end w-full md:w-auto">
           <input
-            className="border rounded-xl p-2 w-60"
+            className="border rounded-xl p-2 w-full sm:w-60 min-w-0"
             placeholder="بحث..."
             value={search}
             onChange={e=>setSearch(e.target.value)}
           />
-          <label className="inline-flex items-center gap-2 text-sm bg-gray-50 border rounded-xl px-3 py-2 cursor-pointer">
+          <label className="inline-flex items-center gap-2 text-sm bg-gray-50 border rounded-xl px-3 py-2 cursor-pointer w-full sm:w-auto">
             <input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)} />
             إظهار غير النشطة
           </label>
-          <button className="btn border" onClick={refresh}>تحديث</button>
+          <button className="btn border w-full sm:w-auto" onClick={refresh}>تحديث</button>
         </div>
       </div>
 
       {/* إضافة سؤال جديد */}
       <section className="card space-y-3">
         <h2 className="text-lg font-semibold">إضافة سؤال</h2>
-        <div className="grid md:grid-cols-4 gap-2 items-end">
-          <div className="md:col-span-2">
-            <label className="text-sm">نص السؤال</label>
-            <input className="border rounded-xl p-2 w-full" value={qText} onChange={e=>setQText(e.target.value)} placeholder="مثلاً: يلتزم بمواعيد الحضور؟" />
+
+        {/* ✅ Grid responsive للحقول */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 items-end">
+          <div className="sm:col-span-2">
+            <label className="text-sm block">نص السؤال</label>
+            <input
+              className="border rounded-xl p-2 w-full min-w-0"
+              value={qText}
+              onChange={e=>setQText(e.target.value)}
+              placeholder="مثلاً: يلتزم بمواعيد الحضور؟"
+            />
           </div>
+
           <div>
-            <label className="text-sm">الوزن (0–100)</label>
-            <input type="number" min={0} max={100} className="border rounded-xl p-2 w-full" value={qWeight} onChange={e=>setQWeight(e.target.value as any)} />
+            <label className="text-sm block">القيمة (0–100)</label>
+            <input
+              type="number" min={0} max={100}
+              className="border rounded-xl p-2 w-full min-w-0"
+              value={qWeight}
+              onChange={e=>setQWeight(e.target.value as any)}
+            />
           </div>
+
           <div>
-            <label className="text-sm">نشط؟</label>
-            <select className="border rounded-xl p-2 w-full" value={String(qActive)} onChange={e=>setQActive(e.target.value==='true')}>
+            <label className="text-sm block">نشط؟</label>
+            <select
+              className="border rounded-xl p-2 w-full min-w-0"
+              value={String(qActive)}
+              onChange={e=>setQActive(e.target.value==='true')}
+            >
               <option value="true">نعم</option>
               <option value="false">لا</option>
             </select>
           </div>
+
           <div className="md:col-span-4 text-end">
-            <LoadingButton loading={saving} onClick={addQuestion}>إضافة</LoadingButton>
+            <LoadingButton className="w-full sm:w-auto" loading={saving} onClick={addQuestion}>
+              إضافة
+            </LoadingButton>
           </div>
         </div>
       </section>
 
       {/* الجدول */}
-      <div className="border rounded-2xl overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+        {/* ✅ حد أدنى لعرض الجدول عشان يلف Scroll على الموبايل */}
+        <table className="w-full min-w-[720px] text-xs sm:text-sm">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-2 text-start w-[60px]">#</th>
               <th className="p-2 text-start">السؤال</th>
-              <th className="p-2 text-center w-[120px]">الوزن</th>
+              <th className="p-2 text-center w-[120px]">القيمة</th>
               <th className="p-2 text-center w-[120px]">نشط</th>
               <th className="p-2 text-center w-[160px]">إجراءات</th>
             </tr>
@@ -180,24 +203,27 @@ export default function AdminEvalQuestions() {
             {filtered.map(r => (
               <tr key={r.id} className="border-t">
                 <td className="p-2">{r.id}</td>
+
                 <td className="p-2">
                   <input
-                    className="border rounded-xl p-2 w-full"
+                    className="border rounded-xl p-2 w-full min-w-0"
                     value={r.question_text}
                     onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, question_text: e.target.value}:x))}
                   />
                 </td>
+
                 <td className="p-2 text-center">
                   <input
                     type="number" min={0} max={100}
-                    className="border rounded-xl p-2 w-24 text-center"
+                    className="border rounded-xl p-2 text-center w-full sm:w-24"
                     value={r.weight}
                     onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, weight: Number(e.target.value)}:x))}
                   />
                 </td>
+
                 <td className="p-2 text-center">
                   <select
-                    className="border rounded-xl p-2"
+                    className="border rounded-xl p-2 w-full sm:w-auto"
                     value={String(r.active)}
                     onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, active: e.target.value==='true'}:x))}
                   >
@@ -205,16 +231,28 @@ export default function AdminEvalQuestions() {
                     <option value="false">لا</option>
                   </select>
                 </td>
-                <td className="p-2 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <LoadingButton loading={savingRow===r.id} onClick={()=>saveRow(r)}>حفظ</LoadingButton>
-                    <button className="btn border" disabled={deletingRow===r.id} onClick={()=>removeRow(r.id)}>
+
+                <td className="p-2">
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <LoadingButton
+                      className="w-full sm:w-auto"
+                      loading={savingRow===r.id}
+                      onClick={()=>saveRow(r)}
+                    >
+                      حفظ
+                    </LoadingButton>
+                    <button
+                      className="btn border w-full sm:w-auto"
+                      disabled={deletingRow===r.id}
+                      onClick={()=>removeRow(r.id)}
+                    >
                       {deletingRow===r.id ? '...' : 'حذف'}
                     </button>
                   </div>
                 </td>
               </tr>
             ))}
+
             {filtered.length === 0 && (
               <tr>
                 <td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد أسئلة</td>
