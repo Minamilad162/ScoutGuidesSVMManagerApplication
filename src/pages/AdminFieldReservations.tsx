@@ -140,45 +140,70 @@ export default function AdminFieldReservations() {
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
 
-      <h1 className="text-xl font-bold">إدارة حجوزات قطاعات الأرض — (أدمن)</h1>
+      <h1 className="text-xl font-bold">إدارة حجوزات الأرض</h1>
 
       {/* الخرائط دائمًا */}
       <FieldMaps className="mb-4" sticky height="h-72 md:h-[28rem]" />
 
-      <div className="grid md:grid-cols-5 gap-2 items-end">
+      {/* ✅ فلاتر البحث: Grid Responsive */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
         <div>
           <label className="text-sm">الفريق</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={teamId} onChange={e=>setTeamId(e.target.value)}>
+          <select
+            className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
+            value={teamId}
+            onChange={e=>setTeamId(e.target.value)}
+          >
             <option value="all">كل الفرق</option>
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
-        <div><label className="text-sm">من</label>
-          <input type="date" className="border rounded-xl p-2 w-full" value={from} onChange={e=>setFrom(e.target.value)} />
+        <div>
+          <label className="text-sm">من</label>
+          <input
+            type="date"
+            className="border rounded-xl p-2 w-full min-w-0"
+            value={from}
+            onChange={e=>setFrom(e.target.value)}
+          />
         </div>
-        <div><label className="text-sm">إلى</label>
-          <input type="date" className="border rounded-xl p-2 w-full" value={to} onChange={e=>setTo(e.target.value)} />
+        <div>
+          <label className="text-sm">إلى</label>
+          <input
+            type="date"
+            className="border rounded-xl p-2 w-full min-w-0"
+            value={to}
+            onChange={e=>setTo(e.target.value)}
+          />
         </div>
-        <div className="md:col-span-2 text-end">
-          <button className="btn border" onClick={refresh}>تحديث</button>
+        <div className="md:col-span-2 text-end mt-2 md:mt-0">
+          <button className="btn border w-full sm:w-auto" onClick={refresh}>تحديث</button>
         </div>
       </div>
 
       {/* ملخص اليوم */}
       <section className="card space-y-3">
-        <div className="flex items-end gap-3 justify-between">
-          <h2 className="text-lg font-semibold">ملخص اليوم — عدد القطاعات المحجوزة لكل فريق</h2>
-          <div>
-            <label className="text-sm mr-2">التاريخ</label>
-            <input type="date" className="border rounded-xl p-2" value={summaryDate} onChange={e=>setSummaryDate(e.target.value)} />
+        <div className="flex flex-wrap items-end gap-3 justify-between">
+          <h2 className="text-lg font-semibold">ملخص اليوم — عدد الارض المحجوزة لكل فريق</h2>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <label className="text-sm">التاريخ</label>
+            <input
+              type="date"
+              className="border rounded-xl p-2 w-full sm:w-auto"
+              value={summaryDate}
+              onChange={e=>setSummaryDate(e.target.value)}
+            />
           </div>
         </div>
 
         <PageLoader visible={summaryLoading} text="جاري حساب الملخص..." />
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+          <table className="w-full min-w-[520px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
-              <tr><th className="p-2 text-start">الفريق</th><th className="p-2 text-center">عدد الحجوزات</th></tr>
+              <tr>
+                <th className="p-2 text-start">الفريق</th>
+                <th className="p-2 text-center">عدد الحجوزات</th>
+              </tr>
             </thead>
             <tbody>
               {summaryRows.map(r => (
@@ -187,21 +212,26 @@ export default function AdminFieldReservations() {
                   <td className="p-2 text-center">{r.reservations}</td>
                 </tr>
               ))}
-              {summaryRows.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={3}>لا توجد حجوزات في هذا اليوم</td></tr>}
+              {summaryRows.length === 0 && (
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={3}>لا توجد حجوزات في هذا اليوم</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
-      <div className="border rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
+      {/* الجدول الرئيسي */}
+      <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+        <table className="w-full min-w-[920px] text-xs sm:text-sm">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-2 text-start">الفريق</th>
               <th className="p-2 text-start">القطاع</th>
-              <th className="p-2 text-start">من</th>
-              <th className="p-2 text-start">إلى</th>
-              <th className="p-2 text-start">تاريخ الاجتماع</th>
+              <th className="p-2 text-start whitespace-nowrap">من</th>
+              <th className="p-2 text-start whitespace-nowrap">إلى</th>
+              <th className="p-2 text-start whitespace-nowrap">تاريخ الاجتماع</th>
               <th className="p-2 text-start">النوع</th>
               <th className="p-2 text-center">حفظ</th>
               <th className="p-2 text-center">إلغاء</th>
@@ -211,37 +241,82 @@ export default function AdminFieldReservations() {
             {rows.map(r => (
               <tr key={r.id} className="border-t">
                 <td className="p-2">
-                  <select className="border rounded-xl p-1" value={r.team_id}
-                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, team_id: e.target.value}:x))}>
+                  <select
+                    className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
+                    value={r.team_id}
+                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, team_id: e.target.value}:x))}
+                  >
                     {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 </td>
                 <td className="p-2">
-                  <select className="border rounded-xl p-1" value={r.field_zone_id}
-                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, field_zone_id: e.target.value}:x))}>
+                  <select
+                    className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
+                    value={r.field_zone_id}
+                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, field_zone_id: e.target.value}:x))}
+                  >
                     {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
                   </select>
                 </td>
-                <td className="p-2"><input type="datetime-local" className="border rounded-xl p-1"
-                  value={r.starts_at?.slice(0,16)} onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, starts_at: e.target.value}:x))} /></td>
-                <td className="p-2"><input type="datetime-local" className="border rounded-xl p-1"
-                  value={r.ends_at?.slice(0,16)} onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, ends_at: e.target.value}:x))} /></td>
-                <td className="p-2"><input type="date" className="border rounded-xl p-1"
-                  value={r.meeting_date ?? ''} onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, meeting_date: e.target.value}:x))} /></td>
                 <td className="p-2">
-                  <select className="border rounded-xl p-1" value={r.mtype ?? 'meeting'}
-                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, mtype: e.target.value as any}:x))}>
+                  <input
+                    type="datetime-local"
+                    className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
+                    value={r.starts_at?.slice(0,16)}
+                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, starts_at: e.target.value}:x))}
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    type="datetime-local"
+                    className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
+                    value={r.ends_at?.slice(0,16)}
+                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, ends_at: e.target.value}:x))}
+                  />
+                </td>
+                <td className="p-2">
+                  <input
+                    type="date"
+                    className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
+                    value={r.meeting_date ?? ''}
+                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, meeting_date: e.target.value}:x))}
+                  />
+                </td>
+                <td className="p-2">
+                  <select
+                    className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
+                    value={r.mtype ?? 'meeting'}
+                    onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, mtype: e.target.value as any}:x))}
+                  >
                     <option value="preparation">تحضير</option>
                     <option value="meeting">اجتماع</option>
                   </select>
                 </td>
-                <td className="p-2 text-center"><LoadingButton loading={savingId===r.id} onClick={()=>saveRow(r)}>حفظ</LoadingButton></td>
                 <td className="p-2 text-center">
-                  <button className="btn border" disabled={deletingId===r.id} onClick={()=>softDelete(r.id)}>{deletingId===r.id?'...':'إلغاء'}</button>
+                  <LoadingButton
+                    className="w-full sm:w-auto"
+                    loading={savingId===r.id}
+                    onClick={()=>saveRow(r)}
+                  >
+                    حفظ
+                  </LoadingButton>
+                </td>
+                <td className="p-2 text-center">
+                  <button
+                    className="btn border w-full sm:w-auto"
+                    disabled={deletingId===r.id}
+                    onClick={()=>softDelete(r.id)}
+                  >
+                    {deletingId===r.id ? '...' : 'إلغاء'}
+                  </button>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={8}>لا توجد سجلات</td></tr>}
+            {rows.length === 0 && (
+              <tr>
+                <td className="p-3 text-center text-gray-500" colSpan={8}>لا توجد سجلات</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
