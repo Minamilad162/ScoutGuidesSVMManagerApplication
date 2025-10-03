@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
@@ -299,7 +298,6 @@ export default function Admin() {
       { team_id: selTeam, kind: 'images', url: imgUrl },
       { team_id: selTeam, kind: 'program', url: progUrl },
     ]
-    // upsert based on unique (team_id, kind)
     const { error } = await supabase.from('team_links').upsert(payload, { onConflict: 'team_id,kind' })
     if (error) { setErr(error.message); return }
     setMsg('تم حفظ الروابط')
@@ -338,12 +336,12 @@ export default function Admin() {
   return (
     <div className="p-6 space-y-6">
       <div className="tabs">
-        <button className={`tab ${tab==='members'?'tab-active':''}`} onClick={()=>setTab('members')}>Members</button>
-        <button className={`tab ${tab==='roles'?'tab-active':''}`} onClick={()=>setTab('roles')}>Roles</button>
-        <button className={`tab ${tab==='terms'?'tab-active':''}`} onClick={()=>setTab('terms')}>Terms</button>
-        <button className={`tab ${tab==='field'?'tab-active':''}`} onClick={()=>setTab('field')}>Field Zones</button>
-        <button className={`tab ${tab==='links'?'tab-active':''}`} onClick={()=>setTab('links')}>Team Links</button>
-        <button className={`tab ${tab==='stats'?'tab-active':''}`} onClick={()=>setTab('stats')}>Statistics</button>
+        <button className={`tab ${tab==='members'?'tab-active':''}`} onClick={()=>setTab('members')}>Members</button> <br />
+        <button className={`tab ${tab==='roles'?'tab-active':''}`} onClick={()=>setTab('roles')}>Roles</button><br />
+        <button className={`tab ${tab==='terms'?'tab-active':''}`} onClick={()=>setTab('terms')}>Terms</button><br />
+        {/* <button className={`tab ${tab==='field'?'tab-active':''}`} onClick={()=>setTab('field')}>Field Zones</button><br /> */}
+        {/* <button className={`tab ${tab==='links'?'tab-active':''}`} onClick={()=>setTab('links')}>Team Links</button><br /> */}
+        <button className={`tab ${tab==='stats'?'tab-active':''}`} onClick={()=>setTab('stats')}>Statistics</button><br />
       </div>
 
       {msg && <div className="text-green-700 text-sm">{msg}</div>}
@@ -353,33 +351,42 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">إضافة/تعديل عضو</h2>
-            <div className="grid md:grid-cols-4 gap-3">
-              <input className="border rounded-xl p-2" placeholder="الاسم الكامل" value={mFull} onChange={e=>setMFull(e.target.value)} />
-              <select className="border rounded-xl p-2" value={mTeam} onChange={e=>setMTeam(e.target.value)}>
+
+            {/* ✅ Grid responsive + inputs full width + min-w-0 لمنع overflow */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="الاسم الكامل" value={mFull} onChange={e=>setMFull(e.target.value)} />
+
+              <select className="border rounded-xl p-2 w-full min-w-0" value={mTeam} onChange={e=>setMTeam(e.target.value)}>
                 <option value="">— فريق —</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <select className="border rounded-xl p-2" value={mRank === '' ? '' : String(mRank)} onChange={e=>setMRank(e.target.value ? Number(e.target.value) : '')}>
+
+              <select className="border rounded-xl p-2 w-full min-w-0" value={mRank === '' ? '' : String(mRank)} onChange={e=>setMRank(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">— رتبة —</option>
                 {ranks.map(r => <option key={r.id} value={r.id}>{r.rank_label}</option>)}
               </select>
-              <label className="text-sm flex items-center gap-2">
+
+              <label className="text-sm flex items-center gap-2 w-full min-w-0">
                 <input type="checkbox" checked={mEquipier} onChange={e=>setMEquipier(e.target.checked)} /> Equipier
               </label>
-              <input className="border rounded-xl p-2" placeholder="تليفون شخصي" value={mPhone} onChange={e=>setMPhone(e.target.value)} />
-              <input className="border rounded-xl p-2" placeholder="اسم ولي الأمر" value={mGName} onChange={e=>setMGName(e.target.value)} />
-              <input className="border rounded-xl p-2" placeholder="تليفون ولي الأمر" value={mGPhone} onChange={e=>setMGPhone(e.target.value)} />
-              <input type="date" className="border rounded-xl p-2" value={mBirth} onChange={e=>setMBirth(e.target.value)} />
-              <input className="border rounded-xl p-2 col-span-2" placeholder="auth_user_id (اختياري)" value={mAuth} onChange={e=>setMAuth(e.target.value)} />
-              <div className="col-span-2 flex justify-end">
+
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="تليفون شخصي" value={mPhone} onChange={e=>setMPhone(e.target.value)} />
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="اسم ولي الأمر" value={mGName} onChange={e=>setMGName(e.target.value)} />
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="تليفون ولي الأمر" value={mGPhone} onChange={e=>setMGPhone(e.target.value)} />
+              <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={mBirth} onChange={e=>setMBirth(e.target.value)} />
+
+              <input className="border rounded-xl p-2 w-full min-w-0 md:col-span-2" placeholder="auth_user_id (اختياري)" value={mAuth} onChange={e=>setMAuth(e.target.value)} />
+
+              <div className="md:col-span-2 flex justify-end">
                 <button className="btn btn-brand" onClick={saveMember}>{mEditId ? 'تحديث' : 'إضافة'}</button>
               </div>
             </div>
           </div>
 
           <div className="card space-y-3">
-            <div className="flex gap-2">
-              <input className="border rounded-xl p-2" placeholder="بحث بالاسم..." value={q} onChange={e=>setQ(e.target.value)} />
+            {/* ✅ فلاتر تلفّ على الموبايل */}
+            <div className="flex flex-wrap gap-2">
+              <input className="border rounded-xl p-2 flex-1 min-w-[200px]" placeholder="بحث بالاسم..." value={q} onChange={e=>setQ(e.target.value)} />
               <select className="border rounded-xl p-2" value={fltTeam} onChange={e=>setFltTeam(e.target.value)}>
                 <option value="">كل الفرق</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -395,8 +402,10 @@ export default function Admin() {
               <input type="file" accept=".csv" className="hidden" ref={fileRef} onChange={e=>{ const f = e.target.files?.[0]; if (f) importMembersCSV(f) }} />
               <button className="btn border" onClick={()=>fileRef.current?.click()}>استيراد CSV</button>
             </div>
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+
+            {/* ✅ Responsive table wrapper */}
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[1000px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2 text-start">الاسم</th>
@@ -413,14 +422,14 @@ export default function Admin() {
                 <tbody>
                   {filteredMembers().map(m => (
                     <tr key={m.id} className="border-t">
-                      <td className="p-2">{m.full_name}</td>
-                      <td className="p-2">{teams.find(t=>t.id===m.team_id)?.name ?? '—'}</td>
-                      <td className="p-2 text-center">{ranks.find(r=>r.id===m.rank_id)?.rank_label ?? '—'}</td>
-                      <td className="p-2 text-center">{m.is_equipier ? '✓' : '—'}</td>
-                      <td className="p-2">{m.personal_phone ?? '—'}</td>
-                      <td className="p-2">{m.guardian_name ?? '—'}</td>
-                      <td className="p-2">{m.guardian_phone ?? '—'}</td>
-                      <td className="p-2">{m.birth_date ?? '—'}</td>
+                      <td className="p-2 whitespace-normal break-words">{m.full_name}</td>
+                      <td className="p-2 whitespace-normal break-words">{teams.find(t=>t.id===m.team_id)?.name ?? '—'}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{ranks.find(r=>r.id===m.rank_id)?.rank_label ?? '—'}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{m.is_equipier ? '✓' : '—'}</td>
+                      <td className="p-2 whitespace-normal break-words">{m.personal_phone ?? '—'}</td>
+                      <td className="p-2 whitespace-normal break-words">{m.guardian_name ?? '—'}</td>
+                      <td className="p-2 whitespace-normal break-words">{m.guardian_phone ?? '—'}</td>
+                      <td className="p-2 whitespace-nowrap">{m.birth_date ?? '—'}</td>
                       <td className="p-2 text-center"><button className="text-sm" onClick={()=>editMember(m)}>تعديل</button></td>
                     </tr>
                   ))}
@@ -435,28 +444,29 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">تعيين دور</h2>
-            <div className="grid md:grid-cols-4 gap-3">
-              <select className="border rounded-xl p-2" value={selectedMemberId} onChange={e=>setSelectedMemberId(e.target.value)}>
+            {/* ✅ Grid responsive في الفورم */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <select className="border rounded-xl p-2 w-full min-w-0" value={selectedMemberId} onChange={e=>setSelectedMemberId(e.target.value)}>
                 <option value="">— اختر عضو —</option>
                 {members.filter(m => m.auth_user_id).map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
               </select>
-              <select className="border rounded-xl p-2" value={assignRoleId === '' ? '' : String(assignRoleId)} onChange={e=>setAssignRoleId(e.target.value ? Number(e.target.value) : '')}>
+              <select className="border rounded-xl p-2 w-full min-w-0" value={assignRoleId === '' ? '' : String(assignRoleId)} onChange={e=>setAssignRoleId(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">— اختر دور —</option>
                 {rolesList.map(r => <option key={r.id} value={r.id}>{r.role_label}</option>)}
               </select>
-              <select className="border rounded-xl p-2" value={assignTeamId} onChange={e=>setAssignTeamId(e.target.value)}>
+              <select className="border rounded-xl p-2 w-full min-w-0" value={assignTeamId} onChange={e=>setAssignTeamId(e.target.value)}>
                 <option value="">— Global —</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <button className="btn btn-brand" onClick={assignRole}>تعيين</button>
+              <button className="btn btn-brand w-full md:w-auto">تعيين</button>
             </div>
             <div className="text-xs text-gray-500">* Global يعني الدور بدون فريق (مثل Admin/Ancien)</div>
           </div>
 
           <div className="card space-y-3">
             <h3 className="font-semibold">الأدوار الحالية للعضو</h3>
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[480px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">الدور</th>
@@ -466,8 +476,8 @@ export default function Admin() {
                 <tbody>
                   {memberRoles.map(r => (
                     <tr key={`${r.user_id}-${r.role_slug}-${r.team_id ?? 'global'}`} className="border-t">
-                      <td className="p-2">{rolesList.find(x=>x.role_slug===r.role_slug)?.role_label ?? r.role_slug}</td>
-                      <td className="p-2">{r.team_id ? (teams.find(t=>t.id===r.team_id)?.name ?? r.team_id) : 'Global'}</td>
+                      <td className="p-2 whitespace-normal break-words">{rolesList.find(x=>x.role_slug===r.role_slug)?.role_label ?? r.role_slug}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.team_id ? (teams.find(t=>t.id===r.team_id)?.name ?? r.team_id) : 'Global'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -481,18 +491,19 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">Terms</h2>
-            <div className="grid md:grid-cols-5 gap-3">
-              <input className="border rounded-xl p-2" placeholder="اسم الترم" value={termName} onChange={e=>setTermName(e.target.value)} />
-              <input type="number" className="border rounded-xl p-2" placeholder="السنة" value={termYear} onChange={e=>setTermYear(Number(e.target.value))} />
-              <input type="date" className="border rounded-xl p-2" value={termStart} onChange={e=>setTermStart(e.target.value)} />
-              <input type="date" className="border rounded-xl p-2" value={termEnd} onChange={e=>setTermEnd(e.target.value)} />
-              <button className="btn btn-brand" onClick={saveTerm}>{termEditId ? 'تحديث' : 'إضافة'}</button>
+            {/* ✅ Grid responsive للفورم */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3">
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="اسم الترم" value={termName} onChange={e=>setTermName(e.target.value)} />
+              <input type="number" className="border rounded-xl p-2 w-full min-w-0" placeholder="السنة" value={termYear} onChange={e=>setTermYear(Number(e.target.value))} />
+              <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={termStart} onChange={e=>setTermStart(e.target.value)} />
+              <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={termEnd} onChange={e=>setTermEnd(e.target.value)} />
+              <button className="btn btn-brand w-full md:w-auto" onClick={saveTerm}>{termEditId ? 'تحديث' : 'إضافة'}</button>
             </div>
           </div>
 
           <div className="card space-y-3">
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[700px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">الاسم</th>
@@ -505,10 +516,10 @@ export default function Admin() {
                 <tbody>
                   {terms.map(t => (
                     <tr key={t.id} className="border-t">
-                      <td className="p-2">{t.name}</td>
-                      <td className="p-2 text-center">{t.year}</td>
-                      <td className="p-2">{t.start_date ?? '—'}</td>
-                      <td className="p-2">{t.end_date ?? '—'}</td>
+                      <td className="p-2 whitespace-normal break-words">{t.name}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{t.year}</td>
+                      <td className="p-2 whitespace-nowrap">{t.start_date ?? '—'}</td>
+                      <td className="p-2 whitespace-nowrap">{t.end_date ?? '—'}</td>
                       <td className="p-2 text-center">
                         <button className="text-sm" onClick={()=>editTerm(t)}>تعديل</button>
                       </td>
@@ -525,17 +536,18 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">Field Zones</h2>
-            <div className="grid md:grid-cols-4 gap-3">
-              <input className="border rounded-xl p-2" placeholder="اسم القطاع (A1/A2/...)" value={zName} onChange={e=>setZName(e.target.value)} />
-              <label className="text-sm flex items-center gap-2">
+            {/* ✅ Grid responsive للفورم */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="اسم القطاع (A1/A2/...)" value={zName} onChange={e=>setZName(e.target.value)} />
+              <label className="text-sm flex items-center gap-2 w-full min-w-0">
                 <input type="checkbox" checked={zActive} onChange={e=>setZActive(e.target.checked)} /> نشط
               </label>
-              <button className="btn btn-brand" onClick={saveZone}>{zEditId ? 'تحديث' : 'إضافة'}</button>
+              <button className="btn btn-brand w-full md:w-auto" onClick={saveZone}>{zEditId ? 'تحديث' : 'إضافة'}</button>
             </div>
           </div>
           <div className="card space-y-3">
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[520px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">القطاع</th>
@@ -546,8 +558,8 @@ export default function Admin() {
                 <tbody>
                   {zones.map(z => (
                     <tr key={z.id} className="border-t">
-                      <td className="p-2">{z.name}</td>
-                      <td className="p-2 text-center">{z.active ? '✓' : '—'}</td>
+                      <td className="p-2 whitespace-normal break-words">{z.name}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{z.active ? '✓' : '—'}</td>
                       <td className="p-2 text-center"><button className="text-sm" onClick={()=>editZone(z)}>تعديل</button></td>
                     </tr>
                   ))}
@@ -562,22 +574,23 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">Team Links</h2>
-            <div className="grid md:grid-cols-3 gap-3">
-              <select className="border rounded-xl p-2" value={selTeam} onChange={e=>setSelTeam(e.target.value)}>
+            {/* ✅ Grid responsive للفورم */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <select className="border rounded-xl p-2 w-full min-w-0" value={selTeam} onChange={e=>setSelTeam(e.target.value)}>
                 <option value="">— اختر فريق —</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <input className="border rounded-xl p-2" placeholder="رابط الصور (Drive)" value={imgUrl} onChange={e=>setImgUrl(e.target.value)} />
-              <input className="border rounded-xl p-2" placeholder="رابط المنهج (Drive)" value={progUrl} onChange={e=>setProgUrl(e.target.value)} />
-              <div className="col-span-3 flex justify-end">
-                <button className="btn btn-brand" onClick={saveLinks}>حفظ</button>
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="رابط الصور (Drive)" value={imgUrl} onChange={e=>setImgUrl(e.target.value)} />
+              <input className="border rounded-xl p-2 w-full min-w-0" placeholder="رابط المنهج (Drive)" value={progUrl} onChange={e=>setProgUrl(e.target.value)} />
+              <div className="md:col-span-3 flex justify-end">
+                <button className="btn btn-brand">حفظ</button>
               </div>
             </div>
           </div>
 
           <div className="card space-y-3">
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[800px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">الفريق</th>
@@ -591,7 +604,7 @@ export default function Admin() {
                     const prog = links.find(l=>l.team_id===t.id && l.kind==='program')?.url ?? '—'
                     return (
                       <tr key={t.id} className="border-t">
-                        <td className="p-2">{t.name}</td>
+                        <td className="p-2 whitespace-normal break-words">{t.name}</td>
                         <td className="p-2 break-all">{img}</td>
                         <td className="p-2 break-all">{prog}</td>
                       </tr>
@@ -608,8 +621,8 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-2">
             <h3 className="font-semibold">توزيع الرتب حسب الفريق</h3>
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[600px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">الفريق</th>
@@ -620,9 +633,9 @@ export default function Admin() {
                 <tbody>
                   {statsRank.map((r, i) => (
                     <tr key={i} className="border-t">
-                      <td className="p-2">{r.team_name}</td>
-                      <td className="p-2">{r.rank_label}</td>
-                      <td className="p-2 text-center">{r.member_count}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.team_name}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.rank_label}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.member_count}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -631,8 +644,8 @@ export default function Admin() {
           </div>
 
           <div className="card space-y-2">
-            <h3 className="font-semibold">الشُفاة غيابهم &gt; 50%</h3>
-            <div className="grid md:grid-cols-3 gap-3">
+            <h3 className="font-semibold">الشفات غيابهم &gt; 50%</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-sm">الترم</label>
                 <select className="w-full border rounded-xl p-2" value={selTerm} onChange={e=>setSelTerm(e.target.value)}>
@@ -640,25 +653,25 @@ export default function Admin() {
                 </select>
               </div>
             </div>
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[800px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">الاسم</th>
                     <th className="p-2">الفريق</th>
                     <th className="p-2">حضور</th>
                     <th className="p-2">غياب</th>
-                    <th className="p-2">النسبة %</th>
+                    <th className="p-2">% النسبة</th>
                   </tr>
                 </thead>
                 <tbody>
                   {statsAbsence.map((r, i) => (
                     <tr key={i} className="border-t">
-                      <td className="p-2">{r.full_name}</td>
-                      <td className="p-2">{r.team_name}</td>
-                      <td className="p-2 text-center">{r.present_count}</td>
-                      <td className="p-2 text-center">{r.absent_count}</td>
-                      <td className="p-2 text-center">{r.absent_pct}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.full_name}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.team_name}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.present_count}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.absent_count}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.absent_pct}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -668,8 +681,8 @@ export default function Admin() {
 
           <div className="card space-y-2">
             <h3 className="font-semibold">الميزانيات</h3>
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[900px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">السنة/الترم</th>
@@ -683,12 +696,12 @@ export default function Admin() {
                 <tbody>
                   {statsFinance.map((r, i) => (
                     <tr key={i} className="border-t">
-                      <td className="p-2">{r.year} — {r.term_name}</td>
-                      <td className="p-2">{r.team_name}</td>
-                      <td className="p-2 text-center">{r.budget_total ?? '—'}</td>
-                      <td className="p-2 text-center">{r.spent}</td>
-                      <td className="p-2 text-center">{r.remaining}</td>
-                      <td className="p-2 text-center">{r.pct_remaining ?? '—'}</td>
+                      <td className="p-2 whitespace-nowrap">{r.year} — {r.term_name}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.team_name}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.budget_total ?? '—'}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.spent}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.remaining}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.pct_remaining ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -698,8 +711,8 @@ export default function Admin() {
 
           <div className="card space-y-2">
             <h3 className="font-semibold">التقييمات</h3>
-            <div className="border rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+              <table className="w-full min-w-[800px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">السنة/الترم</th>
@@ -712,11 +725,11 @@ export default function Admin() {
                 <tbody>
                   {statsEval.map((r, i) => (
                     <tr key={i} className="border-t">
-                      <td className="p-2">{r.year} — {r.term_name}</td>
-                      <td className="p-2">{r.team_name}</td>
-                      <td className="p-2 text-center">{r.total_chefs}</td>
-                      <td className="p-2 text-center">{r.evaluated_chefs}</td>
-                      <td className="p-2 text-center">{r.pending_chefs}</td>
+                      <td className="p-2 whitespace-nowrap">{r.year} — {r.term_name}</td>
+                      <td className="p-2 whitespace-normal break-words">{r.team_name}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.total_chefs}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.evaluated_chefs}</td>
+                      <td className="p-2 text-center whitespace-nowrap">{r.pending_chefs}</td>
                     </tr>
                   ))}
                 </tbody>
