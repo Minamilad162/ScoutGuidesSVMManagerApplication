@@ -61,24 +61,32 @@ export default function AdminReservationsAll() {
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
 
-      <h1 className="text-xl font-bold">حجوزات اليوم — (إدمن)</h1>
+      <h1 className="text-xl font-bold">حجز عهده اليوم</h1>
 
-      <div>
+      {/* ✅ تاريخ مرن */}
+      <div className="flex flex-wrap items-end gap-2">
         <label className="text-sm">التاريخ</label>
-        <input type="date" className="border rounded-xl p-2 ml-2" value={date} onChange={e=>setDate(e.target.value)} />
+        <input
+          type="date"
+          className="border rounded-xl p-2 w-full sm:w-auto"
+          value={date}
+          onChange={e=>setDate(e.target.value)}
+        />
       </div>
 
+      {/* حجوزات العهدة */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">حجوزات الأدوات</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <h2 className="text-lg font-semibold">حجوزات العهده</h2>
+        <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+          {/* ✅ حد أدنى للعرض عشان Scroll على الموبايل */}
+          <table className="w-full min-w-[640px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start">الفريق</th>
                 <th className="p-2 text-start">الأداة</th>
                 <th className="p-2 text-center">العدد</th>
-                <th className="p-2 text-start">من</th>
-                <th className="p-2 text-start">إلى</th>
+                <th className="p-2 text-start whitespace-nowrap">من</th>
+                <th className="p-2 text-start whitespace-nowrap">إلى</th>
               </tr>
             </thead>
             <tbody>
@@ -91,22 +99,27 @@ export default function AdminReservationsAll() {
                   <td className="p-2">{fmt(r.ends_at)}</td>
                 </tr>
               ))}
-              {rowsMat.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد حجوزات</td></tr>}
+              {rowsMat.length === 0 && (
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد حجوزات</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
+      {/* حجوزات قطاعات الأرض */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">حجوزات قطاعات الأرض</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+          <table className="w-full min-w-[600px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start">الفريق</th>
-                <th className="p-2 text-start">القطاع</th>
-                <th className="p-2 text-start">من</th>
-                <th className="p-2 text-start">إلى</th>
+                <th className="p-2 text-start">اسم الأرض</th>
+                <th className="p-2 text-start whitespace-nowrap">من</th>
+                <th className="p-2 text-start whitespace-nowrap">إلى</th>
               </tr>
             </thead>
             <tbody>
@@ -118,7 +131,11 @@ export default function AdminReservationsAll() {
                   <td className="p-2">{fmt(r.ends_at)}</td>
                 </tr>
               ))}
-              {rowsField.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={4}>لا توجد حجوزات</td></tr>}
+              {rowsField.length === 0 && (
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={4}>لا توجد حجوزات</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
