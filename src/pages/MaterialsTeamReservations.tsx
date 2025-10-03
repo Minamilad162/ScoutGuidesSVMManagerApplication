@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
@@ -155,6 +154,7 @@ export default function MaterialsTeamReservations() {
 
       <h1 className="text-xl font-bold">حجوزات الأدوات — مسؤول الفريق</h1>
 
+      {/* فلاتر ونموذج الحجز */}
       <div className="grid md:grid-cols-4 gap-3 items-end">
         <div className={`${isAdmin ? '' : 'opacity-60 pointer-events-none'}`}>
           <label className="text-sm">الفريق</label>
@@ -163,58 +163,69 @@ export default function MaterialsTeamReservations() {
           </select>
           {!isAdmin && <div className="text-xs text-gray-500">لا يمكن تغيير الفريق إلا للأدمن</div>}
         </div>
+
         <div>
           <label className="text-sm">الأداة</label>
           <select className="border rounded-xl p-2 w-full cursor-pointer" value={matId} onChange={e=>setMatId(e.target.value)}>
             {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </div>
+
         <div>
           <label className="text-sm">من</label>
           <input type="datetime-local" className="border rounded-xl p-2 w-full" value={startAt} onChange={e=>setStartAt(e.target.value)} />
         </div>
+
         <div>
           <label className="text-sm">إلى</label>
           <input type="datetime-local" className="border rounded-xl p-2 w-full" value={endAt} onChange={e=>setEndAt(e.target.value)} />
         </div>
+
         <div>
           <label className="text-sm">العدد</label>
           <input type="number" min={1} className="border rounded-xl p-2 w-full" value={qty} onChange={e=>setQty(e.target.value as any)} />
-          {available !== null && <div className="text-xs mt-1">
-            المتاح: <b>{available}</b>
-          </div>}
+          {available !== null && <div className="text-xs mt-1">المتاح: <b>{available}</b></div>}
         </div>
-        <div className="md:col-span-4 flex justify-end">
-          {canBook ? <LoadingButton loading={saving} onClick={saveReservation}>حجز</LoadingButton> : <div className="text-xs text-amber-600">ليس لديك صلاحية للحجز</div>}
+
+        <div className="md:col-span-3 md:text-end">
+          {canBook
+            ? <LoadingButton loading={saving} onClick={saveReservation}><span className="w-full md:w-auto inline-block">حجز</span></LoadingButton>
+            : <div className="text-xs text-amber-600">ليس لديك صلاحية للحجز</div>
+          }
         </div>
       </div>
 
-      <div className="border rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="p-2 text-start">الأداة</th>
-              <th className="p-2 text-center">العدد</th>
-              <th className="p-2 text-start">من</th>
-              <th className="p-2 text-start">إلى</th>
-              <th className="p-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map(r => (
-              <tr key={r.id} className="border-t">
-                <td className="p-2">{matMap.get(r.material_id)?.name || '—'}</td>
-                <td className="p-2 text-center">{r.qty}</td>
-                <td className="p-2">{fmt(r.starts_at)}</td>
-                <td className="p-2">{fmt(r.ends_at)}</td>
-                <td className="p-2 text-end">
-                  <button className="btn border text-xs" onClick={()=>cancelReservation(r.id)}>إلغاء</button>
-                </td>
+      {/* ✅ جدول الحجوزات — Scroll أفقي على الموبايل */}
+      <div className="rounded-2xl border">
+        <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
+          <table className="table-auto w-full min-w-[720px] text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 text-start">الأداة</th>
+                <th className="p-2 text-center">العدد</th>
+                <th className="p-2 text-start">من</th>
+                <th className="p-2 text-start">إلى</th>
+                <th className="p-2"></th>
               </tr>
-            ))}
-            {list.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد حجوزات</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {list.map(r => (
+                <tr key={r.id} className="border-t">
+                  <td className="p-2">{matMap.get(r.material_id)?.name || '—'}</td>
+                  <td className="p-2 text-center">{r.qty}</td>
+                  <td className="p-2">{fmt(r.starts_at)}</td>
+                  <td className="p-2">{fmt(r.ends_at)}</td>
+                  <td className="p-2 text-end">
+                    <button className="btn border text-xs w-full md:w-auto" onClick={()=>cancelReservation(r.id)}>إلغاء</button>
+                  </td>
+                </tr>
+              ))}
+              {list.length === 0 && (
+                <tr><td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد حجوزات</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
