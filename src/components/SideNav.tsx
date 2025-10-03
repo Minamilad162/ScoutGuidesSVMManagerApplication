@@ -79,6 +79,7 @@ export default function SideNav({ onNavigate }: Props) {
       )
       .subscribe()
 
+    // fallback polling
     pollTimer = setInterval(fetchCount, 30000)
 
     return () => {
@@ -155,7 +156,7 @@ export default function SideNav({ onNavigate }: Props) {
       }
     }
 
-    // تقييمى للجميع (بما فيهم الأدمن)
+    // يظهر للجميع
     pushUnique(res, '/app/evaluation', 'تقييمي')
     pushUnique(res, '/app/notifications', 'الإشعارات')
 
