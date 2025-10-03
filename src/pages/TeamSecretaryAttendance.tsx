@@ -204,10 +204,14 @@ export default function TeamSecretaryAttendance() {
       {(isAdmin || isGlobalSec) ? (
         <div className="mb-3">
           <label className="text-sm">الفريق</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={teamId} onChange={e=>{
-            const id = e.target.value; setTeamId(id)
-            const t = teams.find(x=>x.id===id); setTeamName(t?.name || '')
-          }}>
+          <select
+            className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
+            value={teamId}
+            onChange={e=>{
+              const id = e.target.value; setTeamId(id)
+              const t = teams.find(x=>x.id===id); setTeamName(t?.name || '')
+            }}
+          >
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
@@ -219,10 +223,14 @@ export default function TeamSecretaryAttendance() {
         </div>
       )}
 
-      <div className="grid md:grid-cols-3 gap-2 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 items-end">
         <div>
           <label className="text-sm">الترم</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
+          <select
+            className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
+            value={termId}
+            onChange={e=>setTermId(e.target.value)}
+          >
             {terms.map(t => <option key={t.id} value={t.id}>{t.year} — {t.name}</option>)}
           </select>
         </div>
@@ -230,7 +238,7 @@ export default function TeamSecretaryAttendance() {
           <label className="text-sm">تاريخ الاجتماع</label>
           <input
             type="date"
-            className="border rounded-xl p-2 w-full"
+            className="border rounded-xl p-2 w-full min-w-0"
             value={meetingDate}
             onChange={async e=>{
               const v = e.target.value
@@ -244,14 +252,14 @@ export default function TeamSecretaryAttendance() {
         </div>
       </div>
 
-      <div className="border rounded-2xl overflow-hidden mt-3">
-        <table className="w-full text-sm">
+      <div className="border rounded-2xl w-full max-w-full overflow-x-auto mt-3">
+        <table className="w-full min-w-[900px] text-xs sm:text-sm">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-2 text-start">الاسم</th>
-              <th className="p-2 text-center">حضر؟</th>
+              <th className="p-2 text-center whitespace-nowrap">حضر؟</th>
               <th className="p-2 text-start">عذر الغياب (إن وُجد)</th>
-              <th className="p-2 text-center">حضوره في الترم</th>
+              <th className="p-2 text-center whitespace-nowrap">حضوره في الترم</th>
             </tr>
           </thead>
           <tbody>
@@ -261,7 +269,7 @@ export default function TeamSecretaryAttendance() {
               return (
                 <tr key={m.id} className="border-t align-top">
                   <td className="p-2">{m.full_name}</td>
-                  <td className="p-2 text-center">
+                  <td className="p-2 text-center whitespace-nowrap">
                     <input
                       type="checkbox"
                       className="scale-125 cursor-pointer"
@@ -276,18 +284,18 @@ export default function TeamSecretaryAttendance() {
                   <td className="p-2">
                     {!present ? (
                       <input
-                        className="border rounded-xl p-2 w-full"
+                        className="border rounded-xl p-2 w-full min-w-0"
                         placeholder="اكتب العذر (اختياري)"
                         value={reasons[m.id] || ''}
                         onChange={e=>setReasons(r=>({...r, [m.id]: e.target.value}))}
                       />
                     ) : <span className="text-xs text-gray-500">—</span>}
                   </td>
-                  <td className="p-2 text-center">
-                    <span className="px-2 py-1 rounded-full bg-white border text-xs">
+                  <td className="p-2 text-center whitespace-nowrap">
+                    <span className="px-2 py-1 rounded-full bg-white border text-[11px] sm:text-xs">
                       {c.present} من {c.total} — {c.total ? Math.round((c.present/c.total)*100) : 0}%
                       <br />
-                      <span className="text-[11px] text-gray-600">بعذر {c.absent_excused} / بدون {c.absent_unexcused}</span>
+                      <span className="text-[10px] sm:text-[11px] text-gray-600">بعذر {c.absent_excused} / بدون {c.absent_unexcused}</span>
                     </span>
                   </td>
                 </tr>
