@@ -583,11 +583,12 @@ export default function FinanceEvent() {
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جارِ التحميل..." />
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">الأحداث — تسجيل المصروفات العامة (بدون ميزانية)</h1>
+      {/* ✅ الهيدر قابل للّف على الموبايل */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-xl font-bold">تسجيل المصروفات العامة </h1>
         {selectedId && (
           <button
-            className="text-rose-600 hover:underline disabled:opacity-50"
+            className="text-rose-600 hover:underline disabled:opacity-50 w-full sm:w-auto text-start sm:text-right"
             onClick={softDeleteEvent}
             disabled={deletingEvent}
           >
@@ -597,11 +598,11 @@ export default function FinanceEvent() {
       </div>
 
       {/* Events selector + create */}
-      <section className="grid md:grid-cols-2 gap-4">
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm">الحدث</label>
           <select
-            className="border rounded-xl p-2 w-full cursor-pointer"
+            className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
             value={selectedId}
             onChange={e=>setSelectedId(e.target.value)}
           >
@@ -616,20 +617,20 @@ export default function FinanceEvent() {
 
         <div className="space-y-2">
           <div className="text-sm font-medium">إنشاء حدث جديد</div>
-          <div className="grid md:grid-cols-4 gap-2 items-end">
-            <div className="md:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 items-end">
+            <div className="sm:col-span-2 md:col-span-2">
               <label className="text-xs">اسم الحدث</label>
-              <input className="border rounded-xl p-2 w-full" value={evName} onChange={e=>setEvName(e.target.value)} placeholder="مثلاً: حفلة الوعد" />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={evName} onChange={e=>setEvName(e.target.value)} placeholder="مثلاً: حفلة الوعد" />
             </div>
             <div>
               <label className="text-xs">تاريخ الحدث</label>
-              <input type="date" className="border rounded-xl p-2 w-full" value={evDate} onChange={e=>setEvDate(e.target.value)} />
+              <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={evDate} onChange={e=>setEvDate(e.target.value)} />
             </div>
-            <div className="md:col-span-4">
+            <div className="sm:col-span-2 md:col-span-4">
               <label className="text-xs">ملاحظات</label>
-              <input className="border rounded-xl p-2 w-full" value={evNotes} onChange={e=>setEvNotes(e.target.value)} placeholder="اختياري" />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={evNotes} onChange={e=>setEvNotes(e.target.value)} placeholder="اختياري" />
             </div>
-            <div className="md:col-span-4 flex justify-end">
+            <div className="sm:col-span-2 md:col-span-4 flex justify-end">
               <LoadingButton loading={savingEvent} onClick={createEvent}>إنشاء حدث</LoadingButton>
             </div>
           </div>
@@ -638,7 +639,7 @@ export default function FinanceEvent() {
 
       {/* Summary cards */}
       {selectedId && (
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="p-4 rounded-2xl border">
             <div className="text-xs text-gray-500">إجمالي المصروفات</div>
             <div className="text-2xl font-bold">{egp(totalSpent)}</div>
@@ -650,24 +651,24 @@ export default function FinanceEvent() {
       {selectedId && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">إضافة مصروف للحدث</h2>
-          <div className="grid md:grid-cols-5 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
             <div>
               <label className="text-sm">التاريخ</label>
-              <input type="date" className="border rounded-xl p-2 w-full" value={exDate} onChange={e=>setExDate(e.target.value)} />
+              <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={exDate} onChange={e=>setExDate(e.target.value)} />
             </div>
-            <div className="md:col-span-2">
+            <div className="sm:col-span-2">
               <label className="text-sm">البند</label>
-              <input className="border rounded-xl p-2 w-full" value={exName} onChange={e=>setExName(e.target.value)} placeholder="مثلاً: إيجار قاعة" />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={exName} onChange={e=>setExName(e.target.value)} placeholder="مثلاً: إيجار قاعة" />
             </div>
             <div>
               <label className="text-sm">العدد</label>
-              <input type="number" min={1} className="border rounded-xl p-2 w-full" value={exQty} onChange={e=>setExQty(e.target.value as any)} />
+              <input type="number" min={1} className="border rounded-xl p-2 w-full min-w-0" value={exQty} onChange={e=>setExQty(e.target.value as any)} />
             </div>
             <div>
               <label className="text-sm">سعر القطعة</label>
-              <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full" value={exUnit} onChange={e=>setExUnit(e.target.value as any)} />
+              <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full min-w-0" value={exUnit} onChange={e=>setExUnit(e.target.value as any)} />
             </div>
-            <div className="md:col-span-5 flex justify-end">
+            <div className="sm:col-span-2 md:col-span-5 flex justify-end">
               <LoadingButton loading={savingExp} onClick={addExpense}>إضافة</LoadingButton>
             </div>
           </div>
@@ -678,15 +679,15 @@ export default function FinanceEvent() {
       {selectedId && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">مصروفات الحدث</h2>
-          <div className="border rounded-2xl overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+            <table className="w-full min-w-[820px] text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="p-2 text-start">التاريخ</th>
+                  <th className="p-2 text-start whitespace-nowrap">التاريخ</th>
                   <th className="p-2 text-start">البند</th>
-                  <th className="p-2 text-center">العدد</th>
-                  <th className="p-2 text-center">سعر القطعة</th>
-                  <th className="p-2 text-center">الإجمالي</th>
+                  <th className="p-2 text-center whitespace-nowrap">العدد</th>
+                  <th className="p-2 text-center whitespace-nowrap">سعر القطعة</th>
+                  <th className="p-2 text-center whitespace-nowrap">الإجمالي</th>
                   <th className="p-2 text-center">إجراءات</th>
                 </tr>
               </thead>
@@ -697,22 +698,22 @@ export default function FinanceEvent() {
                     <tr key={x.id} className="border-t">
                       <td className="p-2">
                         {isEdit ? (
-                          <input type="date" className="border rounded p-1" value={editDate} onChange={e=>setEditDate(e.target.value)} />
+                          <input type="date" className="border rounded p-1 w-full sm:w-auto min-w-0" value={editDate} onChange={e=>setEditDate(e.target.value)} />
                         ) : sanitizeForUI(x.expense_date)}
                       </td>
                       <td className="p-2">
                         {isEdit ? (
-                          <input className="border rounded p-1 w-full" value={editName} onChange={e=>setEditName(e.target.value)} />
+                          <input className="border rounded p-1 w-full min-w-0" value={editName} onChange={e=>setEditName(e.target.value)} />
                         ) : sanitizeForUI(x.item_name)}
                       </td>
                       <td className="p-2 text-center">
                         {isEdit ? (
-                          <input type="number" min={1} className="border rounded p-1 w-24 text-center" value={editQty} onChange={e=>setEditQty(e.target.value as any)} />
+                          <input type="number" min={1} className="border rounded p-1 w-full sm:w-24 text-center" value={editQty} onChange={e=>setEditQty(e.target.value as any)} />
                         ) : x.qty}
                       </td>
                       <td className="p-2 text-center">
                         {isEdit ? (
-                          <input type="number" min={0} step={0.01} className="border rounded p-1 w-28 text-center" value={editUnit} onChange={e=>setEditUnit(e.target.value as any)} />
+                          <input type="number" min={0} step={0.01} className="border rounded p-1 w-full sm:w-28 text-center" value={editUnit} onChange={e=>setEditUnit(e.target.value as any)} />
                         ) : egp(Number(x.unit_price))}
                       </td>
                       <td className="p-2 text-center">{egp(Number(x.total))}</td>
@@ -753,13 +754,13 @@ export default function FinanceEvent() {
       {(events.length > 0) && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">تصدير Excel (XLSX)</h2>
-          <div className="grid md:grid-cols-4 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 items-end">
             <div>
               <label className="text-sm">وضع التصدير</label>
               <select
-                className="border rounded-xl p-2 w-full"
+                className="border rounded-xl p-2 w-full min-w-0"
                 value={exportMode}
-                onChange={e=>setExportMode(e.target.value as ExportMode)}
+                onChange={e=>setExportMode(e.target.value as any)}
               >
                 <option value="one">حدث محدد</option>
                 <option value="year">سنة كاملة — ورقة لكل حدث</option>
@@ -770,7 +771,7 @@ export default function FinanceEvent() {
               <div className="md:col-span-2">
                 <label className="text-sm">الحدث</label>
                 <select
-                  className="border rounded-xl p-2 w-full"
+                  className="border rounded-xl p-2 w-full min-w-0"
                   value={exportEventId || selectedId}
                   onChange={e=>setExportEventId(e.target.value)}
                 >
@@ -787,7 +788,7 @@ export default function FinanceEvent() {
               <div>
                 <label className="text-sm">السنة</label>
                 <select
-                  className="border rounded-xl p-2 w-full"
+                  className="border rounded-xl p-2 w-full min-w-0"
                   value={exportYear}
                   onChange={e=>setExportYear(Number(e.target.value))}
                 >
@@ -797,7 +798,7 @@ export default function FinanceEvent() {
             )}
 
             <div className="md:col-span-1 text-end">
-              <LoadingButton loading={exporting} onClick={handleExport}>
+              <LoadingButton className="w-full sm:w-auto" loading={exporting} onClick={handleExport}>
                 {exporting ? 'جارِ التحضير...' : 'تصدير XLSX'}
               </LoadingButton>
             </div>
