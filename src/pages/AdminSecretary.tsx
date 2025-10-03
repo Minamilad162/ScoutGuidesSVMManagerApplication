@@ -1,4 +1,3 @@
-// src/pages/AdminSecretary.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
@@ -38,10 +37,9 @@ export default function AdminSecretary() {
   const [teamId, setTeamId] = useState<string>('')
   const [termId, setTermId] = useState<string>('')
   const [rows, setRows] = useState<Member[]>([])
-  const [rolesMap, setRolesMap] = useState<Record<string, RoleRow[]>>({}) // key = member_id
+  const [rolesMap, setRolesMap] = useState<Record<string, RoleRow[]>>({})
   const [att, setAtt] = useState<Record<string, Counts>>({})
 
-  // inline edit state
   const [edit, setEdit] = useState<Record<string, Partial<Member>>>({})
 
   useEffect(() => { init() }, [])
@@ -77,7 +75,6 @@ export default function AdminSecretary() {
       const members = (ms as any[]) ?? []
       setRows(members)
 
-      // roles per user
       const userIds = members.map(m => m.auth_user_id).filter(Boolean) as string[]
       if (userIds.length) {
         const { data: ur, error: re } = await supabase
@@ -99,7 +96,6 @@ export default function AdminSecretary() {
         setRolesMap({})
       }
 
-      // attendance counts for equipiers in term (meetings only)
       const term = terms.find(t => t.id === termId)
       const gte = term?.start_date
       const lte = term?.end_date
@@ -191,14 +187,15 @@ export default function AdminSecretary() {
       <PageLoader visible={loading} text="جاري التحميل..." />
       <h1 className="text-xl font-bold">السيكرتارية — عرض وإدارة (أدمن/مسؤول عام)</h1>
 
-      <div className="grid md:grid-cols-3 gap-3 items-end">
-        <div>
+      {/* فلاتر أعلى الصفحة — مرنة */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
+        <div className="min-w-0">
           <label className="text-sm">الفريق</label>
           <select className="border rounded-xl p-2 w-full cursor-pointer" value={teamId} onChange={e=>setTeamId(e.target.value)}>
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="text-sm">الترم</label>
           <select className="border rounded-xl p-2 w-full cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
             {terms.map(t => <option key={t.id} value={t.id}>{t.year} — {t.name}</option>)}
@@ -206,45 +203,57 @@ export default function AdminSecretary() {
         </div>
       </div>
 
+      {/* القادة */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">القادة (Chefs)</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div
+          className="rounded-2xl border overflow-x-auto"
+          dir="ltr"
+          style={{ WebkitOverflowScrolling: 'touch' as any }}
+        >
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start">الاسم</th>
                 <th className="p-2 text-start">الرتبة</th>
                 <th className="p-2 text-start">المسؤوليات</th>
-                <th className="p-2 text-start">الهاتف</th>
+                <th className="p-2 text-start whitespace-nowrap">الهاتف</th>
               </tr>
             </thead>
             <tbody>
               {chefs.map(m => (
                 <tr key={m.id} className="border-t">
-                  <td className="p-2">{m.full_name}</td>
+                  <td className="p-2 break-words">{m.full_name}</td>
                   <td className="p-2">{m.rank?.rank_label || '—'}</td>
                   <td className="p-2">{roleChip(m)}</td>
-                  <td className="p-2">{m.personal_phone || '—'}</td>
+                  <td className="p-2 whitespace-nowrap">{m.personal_phone || '—'}</td>
                 </tr>
               ))}
-              {chefs.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={4}>لا يوجد قادة في هذا الفريق</td></tr>}
+              {chefs.length === 0 && (
+                <tr><td className="p-3 text-center text-gray-500" colSpan={4}>لا يوجد قادة في هذا الفريق</td></tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
+      {/* الأولاد */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">الأولاد (Equipiers)</h2>
-        <div className="border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div
+          className="rounded-2xl border overflow-x-auto"
+          dir="ltr"
+          style={{ WebkitOverflowScrolling: 'touch' as any }}
+        >
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start">الاسم</th>
                 <th className="p-2 text-start">ولي الأمر</th>
-                <th className="p-2 text-start">هاتف ولي الأمر</th>
-                <th className="p-2 text-start">تاريخ الميلاد</th>
-                <th className="p-2 text-center">حضور الاجتماعات</th>
-                <th className="p-2 text-center">الغياب (بعذر/بدون)</th>
+                <th className="p-2 text-start whitespace-nowrap">هاتف ولي الأمر</th>
+                <th className="p-2 text-start whitespace-nowrap">تاريخ الميلاد</th>
+                <th className="p-2 text-center whitespace-nowrap">حضور الاجتماعات</th>
+                <th className="p-2 text-center whitespace-nowrap">الغياب (بعذر/بدون)</th>
                 <th className="p-2 text-center">حفظ</th>
                 <th className="p-2 text-center">حذف</th>
               </tr>
@@ -254,35 +263,56 @@ export default function AdminSecretary() {
                 const a = att[m.id] || { present: 0, total: 0, absent_excused: 0, absent_unexcused: 0 }
                 const e = edit[m.id] || {}
                 return (
-                  <tr key={m.id} className="border-t">
-                    <td className="p-2">
-                      <input className="border rounded-xl p-1 w-full" defaultValue={m.full_name} onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], full_name: ev.target.value}}))} />
+                  <tr key={m.id} className="border-t align-top">
+                    <td className="p-2 align-top">
+                      <input
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.full_name}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], full_name: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2">
-                      <input className="border rounded-xl p-1 w-full" defaultValue={m.guardian_name || ''} onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_name: ev.target.value}}))} />
+                    <td className="p-2 align-top">
+                      <input
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.guardian_name || ''}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_name: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2">
-                      <input className="border rounded-xl p-1 w-full" defaultValue={m.guardian_phone || ''} onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_phone: ev.target.value}}))} />
+                    <td className="p-2 align-top">
+                      <input
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.guardian_phone || ''}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_phone: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2">
-                      <input type="date" className="border rounded-xl p-1 w-full" defaultValue={m.birth_date || ''} onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], birth_date: ev.target.value}}))} />
+                    <td className="p-2 align-top">
+                      <input
+                        type="date"
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.birth_date || ''}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], birth_date: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2 text-center">
+                    <td className="p-2 text-center align-top">
                       <span className="px-2 py-1 rounded-full bg-white border text-xs">{a.present} من {a.total}</span>
                     </td>
-                    <td className="p-2 text-center">
+                    <td className="p-2 text-center align-top">
                       <span className="px-2 py-1 rounded-full bg-white border text-xs">{a.absent_excused} / {a.absent_unexcused}</span>
                     </td>
-                    <td className="p-2 text-center">
+                    <td className="p-2 text-center align-top">
                       <LoadingButton loading={savingId===m.id} onClick={()=>saveEquipier(m)}>حفظ</LoadingButton>
                     </td>
-                    <td className="p-2 text-center">
-                      <button className="btn border" disabled={deletingId===m.id} onClick={()=>deleteEquipier(m)}>{deletingId===m.id?'...':'حذف'}</button>
+                    <td className="p-2 text-center align-top">
+                      <button className="btn border" disabled={deletingId===m.id} onClick={()=>deleteEquipier(m)}>
+                        {deletingId===m.id?'...':'حذف'}
+                      </button>
                     </td>
                   </tr>
                 )
               })}
-              {equipiers.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={8}>لا يوجد أولاد في هذا الفريق</td></tr>}
+              {equipiers.length === 0 && (
+                <tr><td className="p-3 text-center text-gray-500" colSpan={8}>لا يوجد أولاد في هذا الفريق</td></tr>
+              )}
             </tbody>
           </table>
         </div>
