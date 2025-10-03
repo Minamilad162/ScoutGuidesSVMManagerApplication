@@ -13,7 +13,8 @@ const IMAGES_URL  = 'https://drive.google.com/drive/folders/13wB3GMbm8CTxKLNomKB
 type Props = { onNavigate?: () => void }
 
 export default function SideNav({ onNavigate }: Props) {
-  const { roles, user, signOut } = useAuth()
+  // ❗ شِلّنا signOut من useAuth لتجنّب global sign-out
+  const { roles, user } = useAuth()
 
   // ===== Avatar =====
   const [avatar, setAvatar] = useState<string | null>(null)
@@ -49,7 +50,7 @@ export default function SideNav({ onNavigate }: Props) {
     return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
   })().toUpperCase()
 
-  // ===== Unread notifications badge (Realtime + fallback polling) =====
+  // ===== Unread notifications (Realtime + fallback polling) =====
   const [unread, setUnread] = useState(0)
   useEffect(() => {
     if (!user?.id) return
@@ -165,6 +166,27 @@ export default function SideNav({ onNavigate }: Props) {
 
   const handleNavigate = () => { onNavigate?.() }
 
+  // ===== Local sign out to avoid 403 =====
+  const [signingOut, setSigningOut] = useState(false)
+  const handleSignOut = async () => {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      // محلي فقط (الجهاز الحالي)
+      await supabase.auth.signOut({ scope: 'local' })
+      // اقفل أي قوائم جانبية/مودال
+      handleNavigate()
+      // روح لصفحة البداية/الدخول
+      window.location.replace('/')
+    } catch {
+      // حتى لو حصل خطأ، جرّب برضه تروّح للوجين
+      handleNavigate()
+      window.location.replace('/')
+    } finally {
+      setSigningOut(false)
+    }
+  }
+
   return (
     <aside className="sidenav">
       <div className="sidenav-header">
@@ -226,10 +248,12 @@ export default function SideNav({ onNavigate }: Props) {
 
       <div className="sidenav-footer">
         <button
+          type="button"
           className="btn border w-full"
-          onClick={() => { handleNavigate(); signOut() }}
+          onClick={handleSignOut}
+          disabled={signingOut}
         >
-          تسجيل الخروج
+          {signingOut ? 'جارٍ تسجيل الخروج...' : 'تسجيل الخروج'}
         </button>
       </div>
     </aside>
