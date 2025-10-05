@@ -147,7 +147,9 @@ export default function SideNav({ onNavigate }: Props) {
         roles.some((r: RoleRow) => r.role_slug === 'responsable_materials')
       if (showMaterialsApprove) {
         pushUnique(res, '/app/MaterialsReturnApprove', 'تسليم العهده'),
-                pushUnique(res, '/app/MaterialAdmin', 'الأدوات')
+                pushUnique(res, '/app/MaterialAdmin', 'الأدوات'),
+                pushUnique(res, '/app/AdminFieldReservations', 'ادارة الارض')
+
 
       }
       if (isGlobalSecretary) {
