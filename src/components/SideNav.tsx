@@ -139,7 +139,7 @@ export default function SideNav({ onNavigate }: Props) {
       if (has('responsable_finance') && !has('chef_de_legion')) {
         pushUnique(res, '/app/TeamFinance', 'المالية')
       }
-      if (isAdmin || has('responsable_finance') || has('chef_de_legion')) {
+      if (isAdmin || has('responsable_finance')) {
         pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
       }
       const showMaterialsApprove =
