@@ -1,3 +1,4 @@
+// src/pages/AdminFieldReservations.tsx
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
@@ -30,14 +31,18 @@ export default function AdminFieldReservations() {
   const [teams, setTeams] = useState<Team[]>([])
   const [zones, setZones] = useState<Zone[]>([])
   const [teamId, setTeamId] = useState<string>('all')
-  const [from, setFrom] = useState<string>(''); const [to, setTo] = useState<string>('')
+
+  // ✅ فلتر «يوم واحد»
+  const [dayDate, setDayDate] = useState<string>('')
+
+  // بيانات الحجوزات (الأرض)
   const [rows, setRows] = useState<Row[]>([])
 
-  // ملخص يومي
-  const [summaryDate, setSummaryDate] = useState<string>(''); const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([])
+  // ملخص يومي (عدد الحجوزات لكل فريق)
+  const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
 
-  // حجوزات الأدوات لنفس اليوم/الفريق
+  // حجوزات الأدوات لليوم
   const [materialsLoading, setMaterialsLoading] = useState(false)
   const [materialsRows, setMaterialsRows] = useState<any[]>([])
   const [materialsSource, setMaterialsSource] = useState<string | null>(null)
@@ -53,41 +58,61 @@ export default function AdminFieldReservations() {
       if (te) throw te; if (ze) throw ze
       setTeams((ts as any) ?? []); setZones((zs as any) ?? [])
 
-      const today = new Date(); const pad=(n:number)=>String(n).padStart(2,'0')
-      const start = new Date(today.getFullYear(), today.getMonth(), 1)
-      setFrom(`${start.getFullYear()}-${pad(start.getMonth()+1)}-${pad(start.getDate())}`)
-      setTo(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
-      setSummaryDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
+      const today = new Date()
+      const pad=(n:number)=>String(n).padStart(2,'0')
+      setDayDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحميل')
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { if (from && to) refresh() }, [teamId, from, to])
-  async function refresh() {
+  // تحديث تلقائي عند تغيير اليوم أو الفريق
+  useEffect(() => { if (dayDate) refreshAll() }, [dayDate, teamId])
+
+  function getDayBounds(d: string) {
+    const start = new Date(d + 'T00:00:00')
+    const end   = new Date(d + 'T23:59:59')
+    return { startISO: start.toISOString(), endISO: end.toISOString() }
+  }
+
+  async function refreshAll() {
+    await Promise.all([refreshReservations(), refreshSummary(), refreshMaterialsForDay()])
+  }
+
+  // ============ حجوزات الأرض (اليوم فقط) ============
+  async function refreshReservations() {
+    if (!dayDate) return
+    const { startISO, endISO } = getDayBounds(dayDate)
     setLoading(true)
     try {
       let q = supabase.from('v_field_reservations_detailed').select('*').is('soft_deleted_at', null) as any
-      q = q.gte('starts_at', new Date(from + 'T00:00:00').toISOString()).lte('ends_at', new Date(to + 'T23:59:59').toISOString())
+      // تداخل مع اليوم: يبدأ قبل نهاية اليوم وينتهي بعد بداية اليوم
+      q = q.lt('starts_at', endISO).gt('ends_at', startISO)
       if (teamId !== 'all') q = q.eq('team_id', teamId)
+
       const { data, error } = await q.order('starts_at', { ascending: true })
       if (error) throw error
       setRows((data as any) ?? [])
-    } catch (e:any) { toast.error(e.message || 'تعذر تحميل الحجوزات') }
-    finally { setLoading(false) }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل حجوزات الأرض لليوم')
+    } finally { setLoading(false) }
   }
 
-  useEffect(() => { if (summaryDate) refreshSummary() }, [summaryDate])
+  // ============ ملخص اليوم ============
   async function refreshSummary() {
+    if (!dayDate) return
     setSummaryLoading(true)
     try {
-      const dayStart = new Date(summaryDate + 'T00:00:00'); const dayEnd = new Date(summaryDate + 'T23:59:59')
-      const { data, error } = await supabase
+      const { startISO, endISO } = getDayBounds(dayDate)
+      let q = supabase
         .from('field_reservations')
         .select('team_id, teams:team_id(name), field_zone_id, starts_at, ends_at')
         .is('soft_deleted_at', null)
-        .lt('starts_at', dayEnd.toISOString())
-        .gt('ends_at', dayStart.toISOString())
+        .lt('starts_at', endISO)
+        .gt('ends_at', startISO) as any
+      if (teamId !== 'all') q = q.eq('team_id', teamId)
+
+      const { data, error } = await q
       if (error) throw error
 
       const map: Record<string, { name: string, reservations: number, zones: Set<string> }> = {}
@@ -101,65 +126,61 @@ export default function AdminFieldReservations() {
         team_id: tid, team_name: v.name, reservations: v.reservations, distinct_zones: v.zones.size
       })).sort((a,b) => a.team_name.localeCompare(b.team_name))
       setSummaryRows(rows)
-
-      // ✅ خَلّي الجدول الرئيسي ينعرض لنفس يوم الملخص
-      setFrom(summaryDate)
-      setTo(summaryDate)
-    } catch (e:any) { toast.error(e.message || 'تعذر تحميل ملخص اليوم') }
-    finally { setSummaryLoading(false) }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل ملخص اليوم')
+    } finally { setSummaryLoading(false) }
   }
 
-  // ============== حجوزات الأدوات لنفس اليوم ==============
-  useEffect(() => { if (summaryDate) refreshMaterialsForDay() }, [summaryDate, teamId])
+  // ============ حجوزات الأدوات (اليوم فقط) ============
+  useEffect(() => { /* يبقى هنا فاضي — التحديث بيحصل في refreshAll */ }, [])
   async function refreshMaterialsForDay() {
+    if (!dayDate) return
     setMaterialsLoading(true)
     setMaterialsRows([])
     setMaterialsSource(null)
     try {
-      const dayStart = new Date(summaryDate + 'T00:00:00').toISOString()
-      const dayEnd   = new Date(summaryDate + 'T23:59:59').toISOString()
+      const { startISO, endISO } = getDayBounds(dayDate)
 
-      // هنحاول أكثر من مصدر بدون ما نكسر الصفحة لو جدول مش موجود
       const trySources: Array<() => Promise<{ ok: boolean, source: string, rows: any[] }>> = [
-        // 1) View مفضل لو موجود
+        // 1) View تفصيلي إن وجد
         async () => {
           try {
             let q = supabase.from('v_materials_reservations_detailed').select('*') as any
             if (teamId !== 'all') q = q.eq('team_id', teamId)
             const { data, error } = await q
-              .lt('starts_at', dayEnd)
-              .gt('ends_at', dayStart)
+              .lt('starts_at', endISO)
+              .gt('ends_at', startISO)
               .order('starts_at', { ascending: true })
             if (error) throw error
             return { ok: true, source: 'v_materials_reservations_detailed', rows: (data as any[]) ?? [] }
           } catch { return { ok: false, source: 'v_materials_reservations_detailed', rows: [] } }
         },
-        // 2) جدول materials_reservations + أسماء
+        // 2) materials_reservations (+ أسماء + كمية محتملة)
         async () => {
           try {
             let q = supabase.from('materials_reservations').select(`
-              id, team_id, starts_at, ends_at, notes,
+              id, team_id, starts_at, ends_at, notes, quantity, qty, count,
               teams:team_id(name),
               material_id,
               materials:material_id(name)
             `) as any
             if (teamId !== 'all') q = q.eq('team_id', teamId)
             const { data, error } = await q
-              .lt('starts_at', dayEnd)
-              .gt('ends_at', dayStart)
+              .lt('starts_at', endISO)
+              .gt('ends_at', startISO)
               .order('starts_at', { ascending: true })
             if (error) throw error
             return { ok: true, source: 'materials_reservations', rows: (data as any[]) ?? [] }
           } catch { return { ok: false, source: 'materials_reservations', rows: [] } }
         },
-        // 3) احتمالات أسماء أخرى شائعة
+        // 3) أسماء أخرى شائعة
         async () => {
           try {
             let q = supabase.from('material_reservations').select('*') as any
             if (teamId !== 'all') q = q.eq('team_id', teamId)
             const { data, error } = await q
-              .lt('starts_at', dayEnd)
-              .gt('ends_at', dayStart)
+              .lt('starts_at', endISO)
+              .gt('ends_at', startISO)
               .order('starts_at', { ascending: true })
             if (error) throw error
             return { ok: true, source: 'material_reservations', rows: (data as any[]) ?? [] }
@@ -170,8 +191,8 @@ export default function AdminFieldReservations() {
             let q = supabase.from('tools_reservations').select('*') as any
             if (teamId !== 'all') q = q.eq('team_id', teamId)
             const { data, error } = await q
-              .lt('starts_at', dayEnd)
-              .gt('ends_at', dayStart)
+              .lt('starts_at', endISO)
+              .gt('ends_at', startISO)
               .order('starts_at', { ascending: true })
             if (error) throw error
             return { ok: true, source: 'tools_reservations', rows: (data as any[]) ?? [] }
@@ -188,11 +209,8 @@ export default function AdminFieldReservations() {
         }
       }
     } catch (e:any) {
-      // لو حصل خطأ غير متوقع
-      toast.error(e.message || 'تعذر تحميل حجوزات الأدوات لليوم')
-    } finally {
-      setMaterialsLoading(false)
-    }
+      toast.error(e.message || 'تعذر تحميل حجوزات الأدوات')
+    } finally { setMaterialsLoading(false) }
   }
 
   async function saveRow(r: Row) {
@@ -216,9 +234,11 @@ export default function AdminFieldReservations() {
         if (msg.includes('field_reservations_no_overlap') || msg.includes('overlap')) throw new Error('تعذر الحفظ: تعارض مع حجز آخر')
         throw error
       }
-      toast.success('تم الحفظ'); await refresh(); await refreshSummary(); await refreshMaterialsForDay()
-    } catch (e:any) { toast.error(e.message || 'تعذر الحفظ') }
-    finally { setSavingId(null) }
+      toast.success('تم الحفظ')
+      await refreshAll()
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر الحفظ')
+    } finally { setSavingId(null) }
   }
 
   async function softDelete(id: string) {
@@ -226,9 +246,11 @@ export default function AdminFieldReservations() {
     try {
       const { error } = await supabase.from('field_reservations').update({ soft_deleted_at: new Date().toISOString() }).eq('id', id)
       if (error) throw error
-      toast.success('تم إلغاء الحجز'); await refresh(); await refreshSummary(); await refreshMaterialsForDay()
-    } catch (e:any) { toast.error(e.message || 'تعذر الإلغاء') }
-    finally { setDeletingId(null) }
+      toast.success('تم إلغاء الحجز')
+      await refreshAll()
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر الإلغاء')
+    } finally { setDeletingId(null) }
   }
 
   return (
@@ -240,8 +262,17 @@ export default function AdminFieldReservations() {
       {/* الخرائط دائمًا */}
       <FieldMaps className="mb-4" sticky height="h-72 md:h-[28rem]" />
 
-      {/* ✅ فلاتر البحث: Grid Responsive */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
+      {/* ✅ فلاتر بسيطة: يوم + فريق */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+        <div>
+          <label className="text-sm">التاريخ</label>
+          <input
+            type="date"
+            className="border rounded-xl p-2 w-full min-w-0"
+            value={dayDate}
+            onChange={e=>setDayDate(e.target.value)}
+          />
+        </div>
         <div>
           <label className="text-sm">الفريق</label>
           <select
@@ -253,42 +284,16 @@ export default function AdminFieldReservations() {
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
-        <div>
-          <label className="text-sm">من</label>
-          <input
-            type="date"
-            className="border rounded-xl p-2 w-full min-w-0"
-            value={from}
-            onChange={e=>setFrom(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-sm">إلى</label>
-          <input
-            type="date"
-            className="border rounded-xl p-2 w-full min-w-0"
-            value={to}
-            onChange={e=>setTo(e.target.value)}
-          />
-        </div>
-        <div className="md:col-span-2 text-end mt-2 md:mt-0">
-          <button className="btn border w-full sm:w-auto" onClick={refresh}>تحديث</button>
+        <div className="text-end mt-2 sm:mt-0">
+          <button className="btn border w-full sm:w-auto" onClick={refreshAll}>تحديث</button>
         </div>
       </div>
 
       {/* ملخص اليوم */}
       <section className="card space-y-3">
         <div className="flex flex-wrap items-end gap-3 justify-between">
-          <h2 className="text-lg font-semibold">ملخص اليوم — عدد الارض المحجوزة لكل فريق</h2>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <label className="text-sm">التاريخ</label>
-            <input
-              type="date"
-              className="border rounded-xl p-2 w-full sm:w-auto"
-              value={summaryDate}
-              onChange={e=>setSummaryDate(e.target.value)}
-            />
-          </div>
+          <h2 className="text-lg font-semibold">ملخص اليوم — عدد الأرض المحجوزة</h2>
+          <div className="text-sm text-gray-600">التاريخ: {dayDate || '—'}</div>
         </div>
 
         <PageLoader visible={summaryLoading} text="جاري حساب الملخص..." />
@@ -309,7 +314,7 @@ export default function AdminFieldReservations() {
               ))}
               {summaryRows.length === 0 && (
                 <tr>
-                  <td className="p-3 text-center text-gray-500" colSpan={3}>لا توجد حجوزات في هذا اليوم</td>
+                  <td className="p-3 text-center text-gray-500" colSpan={2}>لا توجد حجوزات في هذا اليوم</td>
                 </tr>
               )}
             </tbody>
@@ -330,27 +335,27 @@ export default function AdminFieldReservations() {
               <tr>
                 <th className="p-2 text-start">الفريق</th>
                 <th className="p-2 text-start">الأداة</th>
+                <th className="p-2 text-center">الكمية</th>
                 <th className="p-2 text-start whitespace-nowrap">من</th>
                 <th className="p-2 text-start whitespace-nowrap">إلى</th>
-                <th className="p-2 text-start">ملاحظات</th>
               </tr>
             </thead>
             <tbody>
               {materialsRows.map((r:any) => {
-                const teamName = r.team_name || r?.teams?.name || '—'
+                const teamName = r.team_name || r?.teams?.name || r?.team?.name || '—'
                 const itemName =
-                  r.material_name || r?.materials?.name || r.item_name || r?.item?.name || '—'
+                  r.material_name || r?.materials?.name || r.item_name || r?.item?.name || r?.tool_name || r?.tools?.name || '—'
+                const qty = (r.quantity ?? r.qty ?? r.count ?? r.amount ?? 1) as number
                 const start = (r.starts_at || '').slice(0,16).replace('T',' ')
                 const end   = (r.ends_at   || '').slice(0,16).replace('T',' ')
-                const notes = r.notes || r.comment || r.description || '—'
                 const key = r.id || `${teamName}-${itemName}-${start}`
                 return (
                   <tr key={key} className="border-t">
                     <td className="p-2">{teamName}</td>
                     <td className="p-2">{itemName}</td>
+                    <td className="p-2 text-center">{qty}</td>
                     <td className="p-2">{start || '—'}</td>
                     <td className="p-2">{end || '—'}</td>
-                    <td className="p-2">{notes}</td>
                   </tr>
                 )
               })}
@@ -366,7 +371,7 @@ export default function AdminFieldReservations() {
         </div>
       </section>
 
-      {/* الجدول الرئيسي */}
+      {/* الجدول الرئيسي (حجوزات الأرض لليوم) */}
       <div className="border rounded-2xl w-full max-w-full overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
         <table className="w-full min-w-[920px] text-xs sm:text-sm">
           <thead className="bg-gray-100">
@@ -458,7 +463,7 @@ export default function AdminFieldReservations() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td className="p-3 text-center text-gray-500" colSpan={8}>لا توجد سجلات</td>
+                <td className="p-3 text-center text-gray-500" colSpan={8}>لا توجد سجلات لهذا اليوم</td>
               </tr>
             )}
           </tbody>
