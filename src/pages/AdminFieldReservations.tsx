@@ -22,6 +22,9 @@ type Row = {
 }
 type SummaryRow = { team_id: string; team_name: string; reservations: number; distinct_zones: number }
 
+type QtyCol = 'quantity' | 'qty' | 'count' | null
+type SoftDeleteCol = 'soft_deleted_at' | 'deleted_at' | 'is_deleted' | null
+
 export default function AdminFieldReservations() {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
@@ -51,6 +54,8 @@ export default function AdminFieldReservations() {
   // تحرير/إلغاء حجوزات الأدوات
   const [editingMatId, setEditingMatId] = useState<string | null>(null)
   const [editingMatDraft, setEditingMatDraft] = useState<{ quantity: number | string; starts_at: string; ends_at: string } | null>(null)
+  const [editingQtyCol, setEditingQtyCol] = useState<QtyCol>(null)
+  const [editingSoftCol, setEditingSoftCol] = useState<SoftDeleteCol>(null)
   const [savingMatId, setSavingMatId] = useState<string | null>(null)
   const [cancellingMatId, setCancellingMatId] = useState<string | null>(null)
 
@@ -308,9 +313,25 @@ export default function AdminFieldReservations() {
     return null // View
   }
 
+  function detectQtyCol(r:any): QtyCol {
+    if ('quantity' in r) return 'quantity'
+    if ('qty' in r) return 'qty'
+    if ('count' in r) return 'count'
+    return null
+  }
+
+  function detectSoftDeleteCol(r:any): SoftDeleteCol {
+    if ('soft_deleted_at' in r) return 'soft_deleted_at'
+    if ('deleted_at' in r) return 'deleted_at'
+    if ('is_deleted' in r) return 'is_deleted'
+    return null
+  }
+
   function startEditMat(r: any) {
     if (!r?.id) return
     setEditingMatId(r.id)
+    setEditingQtyCol(detectQtyCol(r))
+    setEditingSoftCol(detectSoftDeleteCol(r))
     setEditingMatDraft({
       quantity: (r.quantity ?? r.qty ?? r.count ?? 1) as number,
       starts_at: normalizeDTLocal(r.starts_at),
@@ -320,9 +341,11 @@ export default function AdminFieldReservations() {
   function cancelEditMat() {
     setEditingMatId(null)
     setEditingMatDraft(null)
+    setEditingQtyCol(null)
+    setEditingSoftCol(null)
   }
 
-  // ✅ مُحسّنة: لازم نتحقق أن فيه صف اتأثر فعلاً
+  // ✅ يعتمد على عمود الكمية الموجود فعلاً بالصف (quantity/qty/count)
   async function saveEditMat() {
     if (!editingMatId || !editingMatDraft) return
     const base = editableMaterialsBaseTable()
@@ -330,6 +353,8 @@ export default function AdminFieldReservations() {
       toast.error('مصدر البيانات الحالي غير قابل للتعديل.')
       return
     }
+    // لازم نكون عرفنا عمود الكمية من الصف
+    const qtyCol: QtyCol = editingQtyCol || 'qty' // fallback شائع
     try {
       setSavingMatId(editingMatId)
 
@@ -337,31 +362,19 @@ export default function AdminFieldReservations() {
       const isoEnd   = editingMatDraft.ends_at   ? new Date(editingMatDraft.ends_at).toISOString()   : null
       const qtyNum = Number(editingMatDraft.quantity || 0) || 1
 
-      // نحاول بأسماء مختلفة للكمية؛ ونشترط رجوع صف واحد على الأقل
-      async function tryUpdate(col: 'quantity'|'qty'|'count') {
-        const payload: any = {}
-        if (isoStart) payload.starts_at = isoStart
-        if (isoEnd) payload.ends_at = isoEnd
-        payload[col] = qtyNum
+      const payload: any = {}
+      if (isoStart) payload.starts_at = isoStart
+      if (isoEnd) payload.ends_at = isoEnd
+      if (qtyCol) payload[qtyCol] = qtyNum
 
-        const { data, error } = await supabase
-          .from(base)
-          .update(payload)
-          .eq('id', editingMatId)
-          .select('id') // رجّعلنا الصفوف المتأثرة
-        if (error) return { ok: false, why: error.message }
-        const changed = Array.isArray(data) && data.length > 0
-        return { ok: changed, why: changed ? '' : 'لم يتم تعديل أي صف' }
-      }
+      const { data, error } = await supabase
+        .from(base)
+        .update(payload)
+        .eq('id', editingMatId)
+        .select('id')
 
-      let ok = false
-      let lastWhy = ''
-      for (const col of ['quantity','qty','count'] as const) {
-        const res = await tryUpdate(col)
-        if (res.ok) { ok = true; break }
-        lastWhy = res.why
-      }
-      if (!ok) throw new Error(lastWhy || 'تعذر حفظ التعديل')
+      if (error) throw error
+      if (!Array.isArray(data) || data.length === 0) throw new Error('لم يتم تعديل أي صف')
 
       toast.success('تم حفظ التعديل')
       cancelEditMat()
@@ -373,7 +386,7 @@ export default function AdminFieldReservations() {
     }
   }
 
-  // ✅ مُحسّنة: إلغاء الحجز مع تحقق من عدد الصفوف المتأثرة
+  // ✅ إلغاء الحجز: يستخدم عمود Soft Delete الموجود فعلاً، وإلا Delete
   async function cancelMaterialReservation(row: any) {
     if (!row?.id) return
     const base = editableMaterialsBaseTable()
@@ -385,24 +398,34 @@ export default function AdminFieldReservations() {
     try {
       setCancellingMatId(row.id)
 
-      // جرّب Soft Delete أولاً
-      const { data: d1, error: e1 } = await supabase
-        .from(base)
-        .update({ soft_deleted_at: new Date().toISOString() })
-        .eq('id', row.id)
-        .select('id')
-      if (!e1 && Array.isArray(d1) && d1.length > 0) {
-        toast.success('تم إلغاء الحجز')
-        await refreshMaterialsForDay()
-        return
+      const softCol: SoftDeleteCol = detectSoftDeleteCol(row)
+
+      if (softCol) {
+        const payload: any = {}
+        payload[softCol] = softCol === 'is_deleted' ? true : new Date().toISOString()
+
+        const { data: d1, error: e1 } = await supabase
+          .from(base)
+          .update(payload)
+          .eq('id', row.id)
+          .select('id')
+
+        if (e1) throw e1
+        if (Array.isArray(d1) && d1.length > 0) {
+          toast.success('تم إلغاء الحجز')
+          await refreshMaterialsForDay()
+          return
+        }
+        // لو مفيش صف اتأثر هنكمل بالـ delete الفعلي
       }
 
-      // لو مفيش عمود soft_deleted_at أو لم يؤثّر: نحاول Delete فعلي
+      // Delete فعلي
       const { data: d2, error: e2 } = await supabase
         .from(base)
         .delete()
         .eq('id', row.id)
         .select('id')
+
       if (e2) throw e2
       if (!Array.isArray(d2) || d2.length === 0) {
         throw new Error('لم يتم حذف أي صف (تحقق من صلاحيات RLS وأسماء الأعمدة)')
