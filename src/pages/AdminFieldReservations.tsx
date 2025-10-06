@@ -345,7 +345,7 @@ export default function AdminFieldReservations() {
     setEditingSoftCol(null)
   }
 
-  // ✅ يعتمد على عمود الكمية الموجود فعلاً بالصف (quantity/qty/count)
+  // ✅ UPDATE بدون .select — نعتمد على عدم وجود error
   async function saveEditMat() {
     if (!editingMatId || !editingMatDraft) return
     const base = editableMaterialsBaseTable()
@@ -353,7 +353,6 @@ export default function AdminFieldReservations() {
       toast.error('مصدر البيانات الحالي غير قابل للتعديل.')
       return
     }
-    // لازم نكون عرفنا عمود الكمية من الصف
     const qtyCol: QtyCol = editingQtyCol || 'qty' // fallback شائع
     try {
       setSavingMatId(editingMatId)
@@ -367,14 +366,12 @@ export default function AdminFieldReservations() {
       if (isoEnd) payload.ends_at = isoEnd
       if (qtyCol) payload[qtyCol] = qtyNum
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from(base)
         .update(payload)
         .eq('id', editingMatId)
-        .select('id')
 
       if (error) throw error
-      if (!Array.isArray(data) || data.length === 0) throw new Error('لم يتم تعديل أي صف')
 
       toast.success('تم حفظ التعديل')
       cancelEditMat()
@@ -386,7 +383,7 @@ export default function AdminFieldReservations() {
     }
   }
 
-  // ✅ إلغاء الحجز: يستخدم عمود Soft Delete الموجود فعلاً، وإلا Delete
+  // ✅ إلغاء الحجز: Soft-delete إن وُجد عمود، وإلا Delete — بدون .select
   async function cancelMaterialReservation(row: any) {
     if (!row?.id) return
     const base = editableMaterialsBaseTable()
@@ -404,32 +401,25 @@ export default function AdminFieldReservations() {
         const payload: any = {}
         payload[softCol] = softCol === 'is_deleted' ? true : new Date().toISOString()
 
-        const { data: d1, error: e1 } = await supabase
+        const { error } = await supabase
           .from(base)
           .update(payload)
           .eq('id', row.id)
-          .select('id')
 
-        if (e1) throw e1
-        if (Array.isArray(d1) && d1.length > 0) {
-          toast.success('تم إلغاء الحجز')
-          await refreshMaterialsForDay()
-          return
-        }
-        // لو مفيش صف اتأثر هنكمل بالـ delete الفعلي
+        if (error) throw error
+
+        toast.success('تم إلغاء الحجز')
+        await refreshMaterialsForDay()
+        return
       }
 
       // Delete فعلي
-      const { data: d2, error: e2 } = await supabase
+      const { error: e2 } = await supabase
         .from(base)
         .delete()
         .eq('id', row.id)
-        .select('id')
 
       if (e2) throw e2
-      if (!Array.isArray(d2) || d2.length === 0) {
-        throw new Error('لم يتم حذف أي صف (تحقق من صلاحيات RLS وأسماء الأعمدة)')
-      }
 
       toast.success('تم إلغاء الحجز')
       await refreshMaterialsForDay()
