@@ -50,6 +50,12 @@ export default function AdminFieldReservations() {
   // ✅ قاموس أسماء الأدوات (لو مفيش علاقات)
   const [materialsDict, setMaterialsDict] = useState<Record<string, string>>({})
 
+  // ===== تحرير / إلغاء حجوزات الأدوات =====
+  const [editingMatId, setEditingMatId] = useState<string | null>(null)
+  const [editingMatDraft, setEditingMatDraft] = useState<{ quantity: number | string; starts_at: string; ends_at: string } | null>(null)
+  const [savingMatId, setSavingMatId] = useState<string | null>(null)
+  const [cancellingMatId, setCancellingMatId] = useState<string | null>(null)
+
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
@@ -304,6 +310,109 @@ export default function AdminFieldReservations() {
       '—'
     )
   }
+  const normalizeDTLocal = (v?: string|null) => v ? v.slice(0,16) : ''
+
+  // ======== مواد: تحرير / حفظ / إلغاء التعديل / إلغاء الحجز ========
+  const editableMaterialsBaseTable = () => {
+    if (materialsSource === 'materials_reservations') return 'materials_reservations'
+    if (materialsSource === 'material_reservations') return 'material_reservations'
+    if (materialsSource === 'tools_reservations') return 'tools_reservations'
+    return null // View أو مصدر غير قابل للتعديل
+  }
+
+  function startEditMat(r: any) {
+    if (!r?.id) return
+    setEditingMatId(r.id)
+    setEditingMatDraft({
+      quantity: (r.quantity ?? r.qty ?? r.count ?? 1) as number,
+      starts_at: normalizeDTLocal(r.starts_at),
+      ends_at: normalizeDTLocal(r.ends_at),
+    })
+  }
+  function cancelEditMat() {
+    setEditingMatId(null)
+    setEditingMatDraft(null)
+  }
+
+  async function saveEditMat() {
+    if (!editingMatId || !editingMatDraft) return
+    const base = editableMaterialsBaseTable()
+    if (!base) {
+      toast.error('مصدر البيانات الحالي غير قابل للتعديل.')
+      return
+    }
+    try {
+      setSavingMatId(editingMatId)
+
+      const isoStart = editingMatDraft.starts_at ? new Date(editingMatDraft.starts_at).toISOString() : null
+      const isoEnd   = editingMatDraft.ends_at   ? new Date(editingMatDraft.ends_at).toISOString()   : null
+      const qtyNum = Number(editingMatDraft.quantity || 0) || 1
+
+      async function tryUpdate(col: 'quantity'|'qty'|'count') {
+        const payload: any = {}
+        if (isoStart) payload.starts_at = isoStart
+        if (isoEnd) payload.ends_at = isoEnd
+        payload[col] = qtyNum
+        const { error } = await supabase.from(base).update(payload).eq('id', editingMatId)
+        return !error
+      }
+
+      const ok =
+        (await tryUpdate('quantity')) ||
+        (await tryUpdate('qty')) ||
+        (await tryUpdate('count'))
+
+      if (!ok) throw new Error('تعذر حفظ التعديل (تحقق من صلاحيات الجدول وأسماء الأعمدة)')
+
+      toast.success('تم حفظ التعديل')
+      cancelEditMat()
+      await refreshMaterialsForDay()
+    } catch (e:any) {
+      toast.error(e?.message || 'تعذر حفظ التعديل')
+    } finally {
+      setSavingMatId(null)
+    }
+  }
+
+  async function cancelMaterialReservation(row: any) {
+    if (!row?.id) return
+    const base = editableMaterialsBaseTable()
+    if (!base) {
+      toast.error('مصدر البيانات الحالي غير قابل للإلغاء.')
+      return
+    }
+    if (!confirm('هل أنت متأكد من إلغاء هذا الحجز؟')) return
+    try {
+      setCancellingMatId(row.id)
+      // حاول soft delete أولاً
+      let err1: any = null
+      try {
+        const { error } = await supabase.from(base).update({ soft_deleted_at: new Date().toISOString() }).eq('id', row.id)
+        if (!error) {
+          toast.success('تم إلغاء الحجز')
+          await refreshMaterialsForDay()
+          return
+        }
+        err1 = error
+      } catch (e:any) {
+        err1 = e
+      }
+      // لو مفيش عمود soft_deleted_at نعمل delete
+      try {
+        const { error } = await supabase.from(base).delete().eq('id', row.id)
+        if (error) throw error
+        toast.success('تم إلغاء الحجز')
+        await refreshMaterialsForDay()
+      } catch (e:any) {
+        // لو الاتنين فشلوا
+        throw (e || err1 || new Error('تعذر إلغاء الحجز'))
+      }
+    } catch (e:any) {
+      toast.error(e?.message || 'تعذر إلغاء الحجز')
+    } finally {
+      setCancellingMatId(null)
+    }
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -374,7 +483,7 @@ export default function AdminFieldReservations() {
         </div>
       </section>
 
-      {/* ✅ حجوزات الأدوات لنفس اليوم */}
+      {/* ✅ حجوزات الأدوات لنفس اليوم — مع تعديل/إلغاء */}
       <section className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">حجوزات الأدوات — نفس اليوم</h2>
@@ -382,7 +491,7 @@ export default function AdminFieldReservations() {
         </div>
         <PageLoader visible={materialsLoading} text="جاري تحميل حجوزات الأدوات..." />
         <div className="border rounded-2xl w-full max-w-full overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
-          <table className="w-full min-w-[720px] text-xs sm:text-sm">
+          <table className="w-full min-w-[980px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start">الفريق</th>
@@ -390,6 +499,8 @@ export default function AdminFieldReservations() {
                 <th className="p-2 text-center">الكمية</th>
                 <th className="p-2 text-start whitespace-nowrap">من</th>
                 <th className="p-2 text-start whitespace-nowrap">إلى</th>
+                <th className="p-2 text-center">تحرير</th>
+                <th className="p-2 text-center">إلغاء الحجز</th>
               </tr>
             </thead>
             <tbody>
@@ -397,22 +508,88 @@ export default function AdminFieldReservations() {
                 const teamName = getTeamNameFromRow(r)
                 const itemName = getMaterialNameFromRow(r)
                 const qty = (r.quantity ?? r.qty ?? r.count ?? r.amount ?? 1) as number
-                const start = (r.starts_at || '').slice(0,16).replace('T',' ')
-                const end   = (r.ends_at   || '').slice(0,16).replace('T',' ')
+                const start = (r.starts_at || '')
+                const end   = (r.ends_at   || '')
+                const startDisp = start ? start.slice(0,16).replace('T',' ') : '—'
+                const endDisp   = end   ? end.slice(0,16).replace('T',' ')   : '—'
                 const key = r.id || `${teamName}-${itemName}-${start}`
+
+                const canEdit = !!r.id && !!editableMaterialsBaseTable()
+                const isEditing = editingMatId === r.id
+
                 return (
-                  <tr key={key} className="border-t">
+                  <tr key={key} className="border-t align-top">
                     <td className="p-2">{teamName}</td>
                     <td className="p-2">{itemName}</td>
-                    <td className="p-2 text-center">{qty}</td>
-                    <td className="p-2">{start || '—'}</td>
-                    <td className="p-2">{end || '—'}</td>
+                    <td className="p-2 text-center">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          min={1}
+                          className="border rounded-xl p-1 w-24 text-center"
+                          value={editingMatDraft?.quantity ?? 1}
+                          onChange={e=>setEditingMatDraft(d => d ? { ...d, quantity: e.target.value } : d)}
+                        />
+                      ) : qty}
+                    </td>
+                    <td className="p-2">
+                      {isEditing ? (
+                        <input
+                          type="datetime-local"
+                          className="border rounded-xl p-1 w-48"
+                          value={editingMatDraft?.starts_at ?? normalizeDTLocal(start)}
+                          onChange={e=>setEditingMatDraft(d => d ? { ...d, starts_at: e.target.value } : d)}
+                        />
+                      ) : startDisp}
+                    </td>
+                    <td className="p-2">
+                      {isEditing ? (
+                        <input
+                          type="datetime-local"
+                          className="border rounded-xl p-1 w-48"
+                          value={editingMatDraft?.ends_at ?? normalizeDTLocal(end)}
+                          onChange={e=>setEditingMatDraft(d => d ? { ...d, ends_at: e.target.value } : d)}
+                        />
+                      ) : endDisp}
+                    </td>
+                    <td className="p-2 text-center">
+                      {isEditing ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <LoadingButton
+                            loading={savingMatId===r.id}
+                            onClick={saveEditMat}
+                          >
+                            حفظ
+                          </LoadingButton>
+                          <button className="btn border" onClick={cancelEditMat}>إلغاء التعديل</button>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn border"
+                          disabled={!canEdit}
+                          onClick={()=>startEditMat(r)}
+                          title={canEdit ? '' : 'غير قابل للتعديل (مصدر البيانات View)'}
+                        >
+                          تعديل
+                        </button>
+                      )}
+                    </td>
+                    <td className="p-2 text-center">
+                      <button
+                        className="btn border"
+                        disabled={!canEdit || cancellingMatId===r.id}
+                        onClick={()=>cancelMaterialReservation(r)}
+                        title={canEdit ? '' : 'غير قابل للإلغاء (مصدر البيانات View)'}
+                      >
+                        {cancellingMatId===r.id ? '...' : 'إلغاء'}
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
               {materialsRows.length === 0 && !materialsLoading && (
                 <tr>
-                  <td className="p-3 text-center text-gray-500" colSpan={5}>
+                  <td className="p-3 text-center text-gray-500" colSpan={7}>
                     لا توجد حجوزات أدوات في هذا اليوم{teamId!=='all' ? ' لهذا الفريق' : ''}
                   </td>
                 </tr>
