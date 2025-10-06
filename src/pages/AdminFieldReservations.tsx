@@ -32,13 +32,13 @@ export default function AdminFieldReservations() {
   const [zones, setZones] = useState<Zone[]>([])
   const [teamId, setTeamId] = useState<string>('all')
 
-  // ✅ فلتر «يوم واحد»
+  // فلتر “يوم واحد”
   const [dayDate, setDayDate] = useState<string>('')
 
-  // بيانات الحجوزات (الأرض)
+  // بيانات حجوزات الأرض
   const [rows, setRows] = useState<Row[]>([])
 
-  // ملخص يومي (عدد الحجوزات لكل فريق)
+  // ملخص اليوم
   const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
 
@@ -46,11 +46,9 @@ export default function AdminFieldReservations() {
   const [materialsLoading, setMaterialsLoading] = useState(false)
   const [materialsRows, setMaterialsRows] = useState<any[]>([])
   const [materialsSource, setMaterialsSource] = useState<string | null>(null)
-
-  // ✅ قاموس أسماء الأدوات (لو مفيش علاقات)
   const [materialsDict, setMaterialsDict] = useState<Record<string, string>>({})
 
-  // ===== تحرير / إلغاء حجوزات الأدوات =====
+  // تحرير/إلغاء حجوزات الأدوات
   const [editingMatId, setEditingMatId] = useState<string | null>(null)
   const [editingMatDraft, setEditingMatDraft] = useState<{ quantity: number | string; starts_at: string; ends_at: string } | null>(null)
   const [savingMatId, setSavingMatId] = useState<string | null>(null)
@@ -71,7 +69,6 @@ export default function AdminFieldReservations() {
       const pad=(n:number)=>String(n).padStart(2,'0')
       setDayDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
 
-      // حاول نجيب أسماء الأدوات من أكتر من جدول محتمل
       await loadMaterialNames()
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحميل')
@@ -94,13 +91,10 @@ export default function AdminFieldReservations() {
           setMaterialsDict(map)
           break
         }
-      } catch {
-        // جرّب اللي بعده
-      }
+      } catch { /* جرّب اللي بعده */ }
     }
   }
 
-  // تحديث تلقائي عند تغيير اليوم أو الفريق
   useEffect(() => { if (dayDate) refreshAll() }, [dayDate, teamId])
 
   function getDayBounds(d: string) {
@@ -113,17 +107,15 @@ export default function AdminFieldReservations() {
     await Promise.all([refreshReservations(), refreshSummary(), refreshMaterialsForDay()])
   }
 
-  // ============ حجوزات الأرض (اليوم فقط) ============
+  // حجوزات الأرض
   async function refreshReservations() {
     if (!dayDate) return
     const { startISO, endISO } = getDayBounds(dayDate)
     setLoading(true)
     try {
       let q = supabase.from('v_field_reservations_detailed').select('*').is('soft_deleted_at', null) as any
-      // تداخل مع اليوم: يبدأ قبل نهاية اليوم وينتهي بعد بداية اليوم
       q = q.lt('starts_at', endISO).gt('ends_at', startISO)
       if (teamId !== 'all') q = q.eq('team_id', teamId)
-
       const { data, error } = await q.order('starts_at', { ascending: true })
       if (error) throw error
       setRows((data as any) ?? [])
@@ -132,7 +124,7 @@ export default function AdminFieldReservations() {
     } finally { setLoading(false) }
   }
 
-  // ============ ملخص اليوم ============
+  // ملخص اليوم
   async function refreshSummary() {
     if (!dayDate) return
     setSummaryLoading(true)
@@ -166,8 +158,7 @@ export default function AdminFieldReservations() {
     } finally { setSummaryLoading(false) }
   }
 
-  // ============ حجوزات الأدوات (اليوم فقط) ============
-  useEffect(() => { /* التحديث بيحصل في refreshAll */ }, [])
+  // حجوزات الأدوات
   async function refreshMaterialsForDay() {
     if (!dayDate) return
     setMaterialsLoading(true)
@@ -177,7 +168,6 @@ export default function AdminFieldReservations() {
       const { startISO, endISO } = getDayBounds(dayDate)
 
       const trySources: Array<() => Promise<{ ok: boolean, source: string, rows: any[] }>> = [
-        // 1) View تفصيلي إن وجد
         async () => {
           try {
             let q = supabase.from('v_materials_reservations_detailed').select('*') as any
@@ -190,7 +180,6 @@ export default function AdminFieldReservations() {
             return { ok: true, source: 'v_materials_reservations_detailed', rows: (data as any[]) ?? [] }
           } catch { return { ok: false, source: 'v_materials_reservations_detailed', rows: [] } }
         },
-        // 2) materials_reservations (+ أسماء + كمية محتملة)
         async () => {
           try {
             let q = supabase.from('materials_reservations').select(`
@@ -208,7 +197,6 @@ export default function AdminFieldReservations() {
             return { ok: true, source: 'materials_reservations', rows: (data as any[]) ?? [] }
           } catch { return { ok: false, source: 'materials_reservations', rows: [] } }
         },
-        // 3) أسماء أخرى شائعة
         async () => {
           try {
             let q = supabase.from('material_reservations').select('*') as any
@@ -288,7 +276,7 @@ export default function AdminFieldReservations() {
     } finally { setDeletingId(null) }
   }
 
-  // ============ Helpers لاستخراج الاسم ============
+  // Helpers
   function getTeamNameFromRow(r: any): string {
     return (
       r.team_name ||
@@ -312,12 +300,12 @@ export default function AdminFieldReservations() {
   }
   const normalizeDTLocal = (v?: string|null) => v ? v.slice(0,16) : ''
 
-  // ======== مواد: تحرير / حفظ / إلغاء التعديل / إلغاء الحجز ========
+  // أي مصادر قابلة للتعديل؟
   const editableMaterialsBaseTable = () => {
     if (materialsSource === 'materials_reservations') return 'materials_reservations'
     if (materialsSource === 'material_reservations') return 'material_reservations'
     if (materialsSource === 'tools_reservations') return 'tools_reservations'
-    return null // View أو مصدر غير قابل للتعديل
+    return null // View
   }
 
   function startEditMat(r: any) {
@@ -334,6 +322,7 @@ export default function AdminFieldReservations() {
     setEditingMatDraft(null)
   }
 
+  // ✅ مُحسّنة: لازم نتحقق أن فيه صف اتأثر فعلاً
   async function saveEditMat() {
     if (!editingMatId || !editingMatDraft) return
     const base = editableMaterialsBaseTable()
@@ -348,21 +337,31 @@ export default function AdminFieldReservations() {
       const isoEnd   = editingMatDraft.ends_at   ? new Date(editingMatDraft.ends_at).toISOString()   : null
       const qtyNum = Number(editingMatDraft.quantity || 0) || 1
 
+      // نحاول بأسماء مختلفة للكمية؛ ونشترط رجوع صف واحد على الأقل
       async function tryUpdate(col: 'quantity'|'qty'|'count') {
         const payload: any = {}
         if (isoStart) payload.starts_at = isoStart
         if (isoEnd) payload.ends_at = isoEnd
         payload[col] = qtyNum
-        const { error } = await supabase.from(base).update(payload).eq('id', editingMatId)
-        return !error
+
+        const { data, error } = await supabase
+          .from(base)
+          .update(payload)
+          .eq('id', editingMatId)
+          .select('id') // رجّعلنا الصفوف المتأثرة
+        if (error) return { ok: false, why: error.message }
+        const changed = Array.isArray(data) && data.length > 0
+        return { ok: changed, why: changed ? '' : 'لم يتم تعديل أي صف' }
       }
 
-      const ok =
-        (await tryUpdate('quantity')) ||
-        (await tryUpdate('qty')) ||
-        (await tryUpdate('count'))
-
-      if (!ok) throw new Error('تعذر حفظ التعديل (تحقق من صلاحيات الجدول وأسماء الأعمدة)')
+      let ok = false
+      let lastWhy = ''
+      for (const col of ['quantity','qty','count'] as const) {
+        const res = await tryUpdate(col)
+        if (res.ok) { ok = true; break }
+        lastWhy = res.why
+      }
+      if (!ok) throw new Error(lastWhy || 'تعذر حفظ التعديل')
 
       toast.success('تم حفظ التعديل')
       cancelEditMat()
@@ -374,6 +373,7 @@ export default function AdminFieldReservations() {
     }
   }
 
+  // ✅ مُحسّنة: إلغاء الحجز مع تحقق من عدد الصفوف المتأثرة
   async function cancelMaterialReservation(row: any) {
     if (!row?.id) return
     const base = editableMaterialsBaseTable()
@@ -384,29 +384,32 @@ export default function AdminFieldReservations() {
     if (!confirm('هل أنت متأكد من إلغاء هذا الحجز؟')) return
     try {
       setCancellingMatId(row.id)
-      // حاول soft delete أولاً
-      let err1: any = null
-      try {
-        const { error } = await supabase.from(base).update({ soft_deleted_at: new Date().toISOString() }).eq('id', row.id)
-        if (!error) {
-          toast.success('تم إلغاء الحجز')
-          await refreshMaterialsForDay()
-          return
-        }
-        err1 = error
-      } catch (e:any) {
-        err1 = e
-      }
-      // لو مفيش عمود soft_deleted_at نعمل delete
-      try {
-        const { error } = await supabase.from(base).delete().eq('id', row.id)
-        if (error) throw error
+
+      // جرّب Soft Delete أولاً
+      const { data: d1, error: e1 } = await supabase
+        .from(base)
+        .update({ soft_deleted_at: new Date().toISOString() })
+        .eq('id', row.id)
+        .select('id')
+      if (!e1 && Array.isArray(d1) && d1.length > 0) {
         toast.success('تم إلغاء الحجز')
         await refreshMaterialsForDay()
-      } catch (e:any) {
-        // لو الاتنين فشلوا
-        throw (e || err1 || new Error('تعذر إلغاء الحجز'))
+        return
       }
+
+      // لو مفيش عمود soft_deleted_at أو لم يؤثّر: نحاول Delete فعلي
+      const { data: d2, error: e2 } = await supabase
+        .from(base)
+        .delete()
+        .eq('id', row.id)
+        .select('id')
+      if (e2) throw e2
+      if (!Array.isArray(d2) || d2.length === 0) {
+        throw new Error('لم يتم حذف أي صف (تحقق من صلاحيات RLS وأسماء الأعمدة)')
+      }
+
+      toast.success('تم إلغاء الحجز')
+      await refreshMaterialsForDay()
     } catch (e:any) {
       toast.error(e?.message || 'تعذر إلغاء الحجز')
     } finally {
@@ -423,7 +426,7 @@ export default function AdminFieldReservations() {
       {/* الخرائط دائمًا */}
       <FieldMaps className="mb-4" sticky height="h-72 md:h-[28rem]" />
 
-      {/* ✅ فلاتر بسيطة: يوم + فريق */}
+      {/* فلاتر: يوم + فريق */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
         <div>
           <label className="text-sm">التاريخ</label>
@@ -483,7 +486,7 @@ export default function AdminFieldReservations() {
         </div>
       </section>
 
-      {/* ✅ حجوزات الأدوات لنفس اليوم — مع تعديل/إلغاء */}
+      {/* حجوزات الأدوات (مع تعديل/إلغاء) */}
       <section className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">حجوزات الأدوات — نفس اليوم</h2>
@@ -599,7 +602,7 @@ export default function AdminFieldReservations() {
         </div>
       </section>
 
-      {/* الجدول الرئيسي (حجوزات الأرض لليوم) */}
+      {/* الجدول الرئيسي (حجوزات الأرض) */}
       <div className="border rounded-2xl w-full max-w-full overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
         <table className="w-full min-w-[920px] text-xs sm:text-sm">
           <thead className="bg-gray-100">
