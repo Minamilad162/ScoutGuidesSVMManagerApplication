@@ -47,6 +47,9 @@ export default function AdminFieldReservations() {
   const [materialsRows, setMaterialsRows] = useState<any[]>([])
   const [materialsSource, setMaterialsSource] = useState<string | null>(null)
 
+  // ✅ قاموس أسماء الأدوات (لو مفيش علاقات)
+  const [materialsDict, setMaterialsDict] = useState<Record<string, string>>({})
+
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
@@ -61,9 +64,34 @@ export default function AdminFieldReservations() {
       const today = new Date()
       const pad=(n:number)=>String(n).padStart(2,'0')
       setDayDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
+
+      // حاول نجيب أسماء الأدوات من أكتر من جدول محتمل
+      await loadMaterialNames()
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحميل')
     } finally { setLoading(false) }
+  }
+
+  async function loadMaterialNames() {
+    const candidates = [
+      { table: 'materials', id: 'id', name: 'name' },
+      { table: 'material_items', id: 'id', name: 'name' },
+      { table: 'tools', id: 'id', name: 'name' },
+      { table: 'tools_items', id: 'id', name: 'name' },
+    ]
+    for (const c of candidates) {
+      try {
+        const { data, error } = await supabase.from(c.table).select(`${c.id}, ${c.name}`).limit(1000)
+        if (!error && Array.isArray(data) && data.length) {
+          const map: Record<string,string> = {}
+          ;(data as any[]).forEach((r:any) => { map[r[c.id]] = r[c.name] ?? '' })
+          setMaterialsDict(map)
+          break
+        }
+      } catch {
+        // جرّب اللي بعده
+      }
+    }
   }
 
   // تحديث تلقائي عند تغيير اليوم أو الفريق
@@ -117,7 +145,8 @@ export default function AdminFieldReservations() {
 
       const map: Record<string, { name: string, reservations: number, zones: Set<string> }> = {}
       ;(data as any[] ?? []).forEach(r => {
-        const tid = r.team_id as string; const tname = r.teams?.name || '—'
+        const tid = r.team_id as string
+        const tname = r?.teams?.name || teams.find(t => t.id === tid)?.name || '—'
         if (!map[tid]) map[tid] = { name: tname, reservations: 0, zones: new Set<string>() }
         map[tid].reservations += 1
         if (r.field_zone_id) map[tid].zones.add(r.field_zone_id as string)
@@ -132,7 +161,7 @@ export default function AdminFieldReservations() {
   }
 
   // ============ حجوزات الأدوات (اليوم فقط) ============
-  useEffect(() => { /* يبقى هنا فاضي — التحديث بيحصل في refreshAll */ }, [])
+  useEffect(() => { /* التحديث بيحصل في refreshAll */ }, [])
   async function refreshMaterialsForDay() {
     if (!dayDate) return
     setMaterialsLoading(true)
@@ -253,6 +282,29 @@ export default function AdminFieldReservations() {
     } finally { setDeletingId(null) }
   }
 
+  // ============ Helpers لاستخراج الاسم ============
+  function getTeamNameFromRow(r: any): string {
+    return (
+      r.team_name ||
+      r?.teams?.name ||
+      r?.team?.name ||
+      teams.find(t => t.id === r.team_id)?.name ||
+      '—'
+    )
+  }
+  function getMaterialNameFromRow(r: any): string {
+    return (
+      r.material_name ||
+      r?.materials?.name ||
+      r?.item_name ||
+      r?.item?.name ||
+      r?.tool_name ||
+      r?.tools?.name ||
+      (r.material_id ? materialsDict[r.material_id] : '') ||
+      '—'
+    )
+  }
+
   return (
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
@@ -342,9 +394,8 @@ export default function AdminFieldReservations() {
             </thead>
             <tbody>
               {materialsRows.map((r:any) => {
-                const teamName = r.team_name || r?.teams?.name || r?.team?.name || '—'
-                const itemName =
-                  r.material_name || r?.materials?.name || r.item_name || r?.item?.name || r?.tool_name || r?.tools?.name || '—'
+                const teamName = getTeamNameFromRow(r)
+                const itemName = getMaterialNameFromRow(r)
                 const qty = (r.quantity ?? r.qty ?? r.count ?? r.amount ?? 1) as number
                 const start = (r.starts_at || '').slice(0,16).replace('T',' ')
                 const end   = (r.ends_at   || '').slice(0,16).replace('T',' ')
