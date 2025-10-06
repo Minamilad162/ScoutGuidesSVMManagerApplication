@@ -37,6 +37,11 @@ export default function AdminFieldReservations() {
   const [summaryDate, setSummaryDate] = useState<string>(''); const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
 
+  // حجوزات الأدوات لنفس اليوم/الفريق
+  const [materialsLoading, setMaterialsLoading] = useState(false)
+  const [materialsRows, setMaterialsRows] = useState<any[]>([])
+  const [materialsSource, setMaterialsSource] = useState<string | null>(null)
+
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
@@ -96,8 +101,98 @@ export default function AdminFieldReservations() {
         team_id: tid, team_name: v.name, reservations: v.reservations, distinct_zones: v.zones.size
       })).sort((a,b) => a.team_name.localeCompare(b.team_name))
       setSummaryRows(rows)
+
+      // ✅ خَلّي الجدول الرئيسي ينعرض لنفس يوم الملخص
+      setFrom(summaryDate)
+      setTo(summaryDate)
     } catch (e:any) { toast.error(e.message || 'تعذر تحميل ملخص اليوم') }
     finally { setSummaryLoading(false) }
+  }
+
+  // ============== حجوزات الأدوات لنفس اليوم ==============
+  useEffect(() => { if (summaryDate) refreshMaterialsForDay() }, [summaryDate, teamId])
+  async function refreshMaterialsForDay() {
+    setMaterialsLoading(true)
+    setMaterialsRows([])
+    setMaterialsSource(null)
+    try {
+      const dayStart = new Date(summaryDate + 'T00:00:00').toISOString()
+      const dayEnd   = new Date(summaryDate + 'T23:59:59').toISOString()
+
+      // هنحاول أكثر من مصدر بدون ما نكسر الصفحة لو جدول مش موجود
+      const trySources: Array<() => Promise<{ ok: boolean, source: string, rows: any[] }>> = [
+        // 1) View مفضل لو موجود
+        async () => {
+          try {
+            let q = supabase.from('v_materials_reservations_detailed').select('*') as any
+            if (teamId !== 'all') q = q.eq('team_id', teamId)
+            const { data, error } = await q
+              .lt('starts_at', dayEnd)
+              .gt('ends_at', dayStart)
+              .order('starts_at', { ascending: true })
+            if (error) throw error
+            return { ok: true, source: 'v_materials_reservations_detailed', rows: (data as any[]) ?? [] }
+          } catch { return { ok: false, source: 'v_materials_reservations_detailed', rows: [] } }
+        },
+        // 2) جدول materials_reservations + أسماء
+        async () => {
+          try {
+            let q = supabase.from('materials_reservations').select(`
+              id, team_id, starts_at, ends_at, notes,
+              teams:team_id(name),
+              material_id,
+              materials:material_id(name)
+            `) as any
+            if (teamId !== 'all') q = q.eq('team_id', teamId)
+            const { data, error } = await q
+              .lt('starts_at', dayEnd)
+              .gt('ends_at', dayStart)
+              .order('starts_at', { ascending: true })
+            if (error) throw error
+            return { ok: true, source: 'materials_reservations', rows: (data as any[]) ?? [] }
+          } catch { return { ok: false, source: 'materials_reservations', rows: [] } }
+        },
+        // 3) احتمالات أسماء أخرى شائعة
+        async () => {
+          try {
+            let q = supabase.from('material_reservations').select('*') as any
+            if (teamId !== 'all') q = q.eq('team_id', teamId)
+            const { data, error } = await q
+              .lt('starts_at', dayEnd)
+              .gt('ends_at', dayStart)
+              .order('starts_at', { ascending: true })
+            if (error) throw error
+            return { ok: true, source: 'material_reservations', rows: (data as any[]) ?? [] }
+          } catch { return { ok: false, source: 'material_reservations', rows: [] } }
+        },
+        async () => {
+          try {
+            let q = supabase.from('tools_reservations').select('*') as any
+            if (teamId !== 'all') q = q.eq('team_id', teamId)
+            const { data, error } = await q
+              .lt('starts_at', dayEnd)
+              .gt('ends_at', dayStart)
+              .order('starts_at', { ascending: true })
+            if (error) throw error
+            return { ok: true, source: 'tools_reservations', rows: (data as any[]) ?? [] }
+          } catch { return { ok: false, source: 'tools_reservations', rows: [] } }
+        },
+      ]
+
+      for (const fn of trySources) {
+        const { ok, source, rows } = await fn()
+        if (ok) {
+          setMaterialsSource(source)
+          setMaterialsRows(rows)
+          break
+        }
+      }
+    } catch (e:any) {
+      // لو حصل خطأ غير متوقع
+      toast.error(e.message || 'تعذر تحميل حجوزات الأدوات لليوم')
+    } finally {
+      setMaterialsLoading(false)
+    }
   }
 
   async function saveRow(r: Row) {
@@ -121,7 +216,7 @@ export default function AdminFieldReservations() {
         if (msg.includes('field_reservations_no_overlap') || msg.includes('overlap')) throw new Error('تعذر الحفظ: تعارض مع حجز آخر')
         throw error
       }
-      toast.success('تم الحفظ'); await refresh(); await refreshSummary()
+      toast.success('تم الحفظ'); await refresh(); await refreshSummary(); await refreshMaterialsForDay()
     } catch (e:any) { toast.error(e.message || 'تعذر الحفظ') }
     finally { setSavingId(null) }
   }
@@ -131,7 +226,7 @@ export default function AdminFieldReservations() {
     try {
       const { error } = await supabase.from('field_reservations').update({ soft_deleted_at: new Date().toISOString() }).eq('id', id)
       if (error) throw error
-      toast.success('تم إلغاء الحجز'); await refresh(); await refreshSummary()
+      toast.success('تم إلغاء الحجز'); await refresh(); await refreshSummary(); await refreshMaterialsForDay()
     } catch (e:any) { toast.error(e.message || 'تعذر الإلغاء') }
     finally { setDeletingId(null) }
   }
@@ -197,7 +292,7 @@ export default function AdminFieldReservations() {
         </div>
 
         <PageLoader visible={summaryLoading} text="جاري حساب الملخص..." />
-        <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+        <div className="border rounded-2xl w-full max-w-full overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
           <table className="w-full min-w-[520px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
@@ -222,8 +317,57 @@ export default function AdminFieldReservations() {
         </div>
       </section>
 
+      {/* ✅ حجوزات الأدوات لنفس اليوم */}
+      <section className="card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">حجوزات الأدوات — نفس اليوم</h2>
+          {materialsSource && <div className="text-xs text-gray-500">المصدر: {materialsSource}</div>}
+        </div>
+        <PageLoader visible={materialsLoading} text="جاري تحميل حجوزات الأدوات..." />
+        <div className="border rounded-2xl w-full max-w-full overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
+          <table className="w-full min-w-[720px] text-xs sm:text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 text-start">الفريق</th>
+                <th className="p-2 text-start">الأداة</th>
+                <th className="p-2 text-start whitespace-nowrap">من</th>
+                <th className="p-2 text-start whitespace-nowrap">إلى</th>
+                <th className="p-2 text-start">ملاحظات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {materialsRows.map((r:any) => {
+                const teamName = r.team_name || r?.teams?.name || '—'
+                const itemName =
+                  r.material_name || r?.materials?.name || r.item_name || r?.item?.name || '—'
+                const start = (r.starts_at || '').slice(0,16).replace('T',' ')
+                const end   = (r.ends_at   || '').slice(0,16).replace('T',' ')
+                const notes = r.notes || r.comment || r.description || '—'
+                const key = r.id || `${teamName}-${itemName}-${start}`
+                return (
+                  <tr key={key} className="border-t">
+                    <td className="p-2">{teamName}</td>
+                    <td className="p-2">{itemName}</td>
+                    <td className="p-2">{start || '—'}</td>
+                    <td className="p-2">{end || '—'}</td>
+                    <td className="p-2">{notes}</td>
+                  </tr>
+                )
+              })}
+              {materialsRows.length === 0 && !materialsLoading && (
+                <tr>
+                  <td className="p-3 text-center text-gray-500" colSpan={5}>
+                    لا توجد حجوزات أدوات في هذا اليوم{teamId!=='all' ? ' لهذا الفريق' : ''}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {/* الجدول الرئيسي */}
-      <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+      <div className="border rounded-2xl w-full max-w-full overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
         <table className="w-full min-w-[920px] text-xs sm:text-sm">
           <thead className="bg-gray-100">
             <tr>
