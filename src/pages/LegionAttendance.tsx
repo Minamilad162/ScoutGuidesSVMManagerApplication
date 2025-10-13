@@ -24,6 +24,8 @@ type DayStatus = {
   excuse_note?: string
 }
 
+type StatsSort = 'name' | 'most' | 'least' // ⬅️ جديد: ترتيب الإحصائيات
+
 export default function LegionAttendance() {
   const toast = useToast()
 
@@ -47,6 +49,9 @@ export default function LegionAttendance() {
   const [dayDate, setDayDate] = useState<string>('')
   const [dayType, setDayType] = useState<'meeting' | 'preparation'>('meeting')
   const [dayStatus, setDayStatus] = useState<Record<string, DayStatus>>({})
+
+  // ⬅️ جديد: ترتيب الإحصائيات
+  const [statsSort, setStatsSort] = useState<StatsSort>('name')
 
   useEffect(() => { init() }, [])
   async function init() {
@@ -159,7 +164,7 @@ export default function LegionAttendance() {
       else (r.is_excused ? map[mid].excused++ : map[mid].unexcused++)
     })
 
-    return filteredMembers.map(m => {
+    const arr = filteredMembers.map(m => {
       const s = map[m.id] || { present: 0, total: 0, excused: 0, unexcused: 0 }
       const pct = s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
       return {
@@ -172,8 +177,19 @@ export default function LegionAttendance() {
         total: s.total,
         pct,
       }
-    }).sort((a,b)=> a.name.localeCompare(b.name, 'ar'))
-  }, [rows, filteredMembers])
+    })
+
+    // ⬅️ ترتيب الإحصائيات
+    if (statsSort === 'most') {
+      arr.sort((a,b)=> (b.pct - a.pct) || (b.present - a.present) || a.name.localeCompare(b.name, 'ar'))
+    } else if (statsSort === 'least') {
+      arr.sort((a,b)=> (a.pct - b.pct) || (a.present - b.present) || a.name.localeCompare(b.name, 'ar'))
+    } else {
+      arr.sort((a,b)=> a.name.localeCompare(b.name, 'ar'))
+    }
+
+    return arr
+  }, [rows, filteredMembers, statsSort])
 
   function setPresent(mid: string, v: boolean) {
     setDayStatus(prev => {
@@ -326,7 +342,7 @@ export default function LegionAttendance() {
           </div>
         </div>
 
-        {/* ✅ جدول اليوم — Scroll أفقي على الموبايل */}
+        {/* جدول اليوم */}
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
             <table className="table-auto w-full min-w-[900px] text-sm">
@@ -383,7 +399,23 @@ export default function LegionAttendance() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">الإحصائيات</h2>
 
-        {/* ✅ جدول الإحصائيات — Scroll أفقي على الموبايل */}
+        {/* ⬅️ جديد: أدوات ترتيب الإحصائيات */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-sm text-gray-600">رتّب النتائج</div>
+          <div>
+            <select
+              className="border rounded-xl p-2 w-full md:w-[240px] cursor-pointer"
+              value={statsSort}
+              onChange={e=>setStatsSort(e.target.value as StatsSort)}
+            >
+              <option value="name">أبجديًا (أ–ي)</option>
+              <option value="most">الأكثر حضورًا</option>
+              <option value="least">الأقل حضورًا</option>
+            </select>
+          </div>
+        </div>
+
+        {/* جدول الإحصائيات */}
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
             <table className="table-auto w-full min-w-[880px] text-sm">

@@ -255,152 +255,158 @@ export default function Notifications() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="app-main">
       <PageLoader visible={loading} text="جاري التحميل..." />
 
-      {/* هيدر مرن */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-xl font-bold">الإشعارات</h1>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <input
-            className="border rounded-xl p-2 w-full sm:w-64 md:w-72 min-w-0"
-            placeholder="ابحث (فريق، شخص، عنوان...)"
-            value={search}
-            onChange={e=>setSearch(e.target.value)}
-          />
-          <label className="inline-flex items-center gap-2 text-sm bg-gray-50 border rounded-xl px-3 py-2 cursor-pointer">
-            <input type="checkbox" checked={showRead} onChange={e=>setShowRead(e.target.checked)} />
-            عرض المقروء
-          </label>
-          <button
-            className="btn border w-full sm:w-auto"
-            onClick={markAllRead}
-            disabled={markingAll || rows.length===0}
-          >
-            {markingAll ? '...' : 'تحديد الكل كمقروء'}
-          </button>
-        </div>
-      </div>
+      <div className="container space-y-4">
+        {/* ===== Toolbar (متّزن على الديسكتوب) ===== */}
+        <div className="card toolbar">
+          <h1 className="text-xl font-bold">الإشعارات</h1>
 
-      {/* الكروت */}
-      <div className="space-y-3">
-        {filtered.map(n => {
-          const meta = typeMeta[n.ntype]
-          const np = normalizePayload(n.payload)
-          const title = meta?.title || n.ntype.replace(/_/g,' ')
-          const text = meta?.makeText(n, np) || (np.note ?? '—')
-          const tone = meta?.tone || 'info'
-          const icon = meta?.icon || '🔔'
+          <div className="toolbar-search">
+            <input
+              className="input w-full"
+              placeholder="ابحث (فريق، شخص، عنوان...)"
+              value={search}
+              onChange={e=>setSearch(e.target.value)}
+            />
+          </div>
 
-          const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
-
-          return (
-            <div
-              key={n.id}
-              className={`rounded-2xl border p-4 ${clsTone(tone)} ${n.is_read ? 'opacity-60' : ''}`}
+          <div className="toolbar-actions">
+            <label className="inline-flex items-center gap-2 text-sm bg-gray-50 border rounded-xl px-3 py-2 cursor-pointer">
+              <input type="checkbox" checked={showRead} onChange={e=>setShowRead(e.target.checked)} />
+              عرض المقروء
+            </label>
+            <button
+              className="btn btn-brand"
+              onClick={markAllRead}
+              disabled={markingAll || rows.length===0}
+              title="تحديد الكل كمقروء"
             >
-              <div className="flex flex-col sm:flex-row items-start sm:items-stretch justify-between gap-3">
-                {/* المحتوى */}
-                <div className="flex-1 min-w-0">
-                  {/* ترويسة الكارت */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{icon}</span>
-                    <div className="font-semibold break-words">{title}</div>
-                    {!n.is_read && (
-                      <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                        جديد
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-500 ml-auto whitespace-nowrap">
-                      {timeAgo(n.created_at)}
-                    </span>
-                  </div>
+              {markingAll ? '…' : 'تحديد الكل كمقروء'}
+            </button>
+          </div>
+        </div>
 
-                  {/* النص */}
-                  <div className="mt-1 text-sm leading-6 whitespace-pre-line break-words">
-                    {text}
-                  </div>
+        {/* ===== Cards ===== */}
+        <div className="space-y-3">
+          {filtered.map(n => {
+            const meta = typeMeta[n.ntype]
+            const np = normalizePayload(n.payload)
+            const title = meta?.title || n.ntype.replace(/_/g,' ')
+            const text = meta?.makeText(n, np) || (np.note ?? '—')
+            const tone = meta?.tone || 'info'
+            const icon = meta?.icon || '🔔'
 
-                  {/* Chips */}
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    {np.teamName && <span className="px-2 py-1 rounded-full bg-white border">فريق: <b>{np.teamName}</b></span>}
-                    {np.memberName && <span className="px-2 py-1 rounded-full bg-white border">الاسم: <b>{np.memberName}</b></span>}
-                    {np.guardianName && <span className="px-2 py-1 rounded-full bg-white border">ولي الأمر: <b>{np.guardianName}</b></span>}
-                    {np.guardianPhone && <span className="px-2 py-1 rounded-full bg-white border">هاتف ولي الأمر: <b dir="ltr">{np.guardianPhone}</b></span>}
-                    {np.role && <span className="px-2 py-1 rounded-full bg-white border">الدور: <b>{np.role}</b></span>}
-                    {np.materialName && <span className="px-2 py-1 rounded-full bg-white border">أداة: <b>{np.materialName}</b></span>}
-                    {np.zoneName && <span className="px-2 py-1 rounded-full bg-white border">قطاع: <b>{np.zoneName}</b></span>}
-                    {np.qty !== undefined && <span className="px-2 py-1 rounded-full bg-white border">العدد: <b>{np.qty}</b></span>}
-                    {np.termLabel && <span className="px-2 py-1 rounded-full bg-white border">الترم: <b>{np.termLabel}</b></span>}
-                  </div>
+            const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
 
-                  {/* تفاصيل مختصرة */}
-                  <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
-                    {(np.from || np.to) && (
-                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
-                        <div className="text-gray-600">الفترة</div>
-                        <div className="break-words">
-                          <b>{fmtDateTime(np.from)}</b> — <b>{fmtDateTime(np.to)}</b>
+            return (
+              <div
+                key={n.id}
+                className={`notif-card rounded-2xl border p-4 ${clsTone(tone)} ${n.is_read ? 'opacity-60' : ''}`}
+              >
+                {/* Grid يحل مشاكل الديسكتوب: المحتوى + عمود زر الأكشن */}
+                <div className="notif-grid">
+                  {/* المحتوى */}
+                  <div className="min-w-0">
+                    {/* ترويسة */}
+                    <div className="grid items-center gap-2 md:grid-cols-[1fr,auto]">
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <span className="text-lg">{icon}</span>
+                        <div className="notif-title font-semibold break-words">{title}</div>
+                        {!n.is_read && (
+                          <span className="badge-new">جديد</span>
+                        )}
+                      </div>
+                      <span className="notif-time">{timeAgo(n.created_at)}</span>
+                    </div>
+
+                    {/* النص */}
+                    <div className="mt-2 text-sm leading-6 whitespace-pre-line break-words">
+                      {text}
+                    </div>
+
+                    {/* Chips */}
+                    <div className="mt-3 chips">
+                      {np.teamName && <span className="chip">فريق: <b>{np.teamName}</b></span>}
+                      {np.memberName && <span className="chip">الاسم: <b>{np.memberName}</b></span>}
+                      {np.guardianName && <span className="chip">ولي الأمر: <b>{np.guardianName}</b></span>}
+                      {np.guardianPhone && <span className="chip">هاتف ولي الأمر: <b dir="ltr">{np.guardianPhone}</b></span>}
+                      {np.role && <span className="chip">الدور: <b>{np.role}</b></span>}
+                      {np.materialName && <span className="chip">أداة: <b>{np.materialName}</b></span>}
+                      {np.zoneName && <span className="chip">قطاع: <b>{np.zoneName}</b></span>}
+                      {np.qty !== undefined && <span className="chip">العدد: <b>{np.qty}</b></span>}
+                      {np.termLabel && <span className="chip">الترم: <b>{np.termLabel}</b></span>}
+                    </div>
+
+                    {/* تفاصيل مختصرة */}
+                    <div className="mt-3 details-grid">
+                      {(np.from || np.to) && (
+                        <div className="detail">
+                          <div className="detail-label">الفترة</div>
+                          <div className="break-words">
+                            <b>{fmtDateTime(np.from)}</b> — <b>{fmtDateTime(np.to)}</b>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {np.meetingDate && (
-                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
-                        <div className="text-gray-600">تاريخ الاجتماع</div>
-                        <div><b>{fmtDate(np.meetingDate)}</b></div>
-                      </div>
-                    )}
+                      {np.meetingDate && (
+                        <div className="detail">
+                          <div className="detail-label">تاريخ الاجتماع</div>
+                          <div><b>{fmtDate(np.meetingDate)}</b></div>
+                        </div>
+                      )}
 
-                    {Array.isArray(datesArr) && datesArr.length === 3 && (
-                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
-                        <div className="text-gray-600">تواريخ الغياب</div>
-                        <div className="break-words"><b>{datesArr.map(fmtDate).join('، ')}</b></div>
-                      </div>
-                    )}
+                      {Array.isArray(datesArr) && datesArr.length === 3 && (
+                        <div className="detail">
+                          <div className="detail-label">تواريخ الغياب</div>
+                          <div className="break-words"><b>{datesArr.map(fmtDate).join('، ')}</b></div>
+                        </div>
+                      )}
 
-                    {np.mtype && (
-                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
-                        <div className="text-gray-600">نوع اليوم</div>
-                        <div><b>{np.mtype === 'preparation' ? 'تحضير' : np.mtype === 'meeting' ? 'اجتماع' : np.mtype}</b></div>
-                      </div>
-                    )}
-                    {np.remaining !== undefined && (
-                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
-                        <div className="text-gray-600">المتبقي</div>
-                        <div><b>{np.remaining} EGP</b></div>
-                      </div>
-                    )}
-                    {np.amount !== undefined && (
-                      <div className="bg-white/70 border rounded-xl p-2 min-w-0">
-                        <div className="text-gray-600">المبلغ</div>
-                        <div><b>{np.amount} EGP</b></div>
-                      </div>
+                      {np.mtype && (
+                        <div className="detail">
+                          <div className="detail-label">نوع اليوم</div>
+                          <div><b>{np.mtype === 'preparation' ? 'تحضير' : np.mtype === 'meeting' ? 'اجتماع' : np.mtype}</b></div>
+                        </div>
+                      )}
+                      {np.remaining !== undefined && (
+                        <div className="detail">
+                          <div className="detail-label">المتبقي</div>
+                          <div><b>{np.remaining} EGP</b></div>
+                        </div>
+                      )}
+                      {np.amount !== undefined && (
+                        <div className="detail">
+                          <div className="detail-label">المبلغ</div>
+                          <div><b>{np.amount} EGP</b></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* زرار الأكشن */}
+                  <div className="actions-col">
+                    {!n.is_read ? (
+                      <button
+                        className="btn border w-full md:w-auto"
+                        disabled={marking===n.id}
+                        onClick={()=>markRead(n.id)}
+                      >
+                        {marking===n.id ? '...' : 'تمّت القراءة'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-500 block text-center md:text-start">مقروء</span>
                     )}
                   </div>
-                </div>
-
-                {/* زرار الأكشن */}
-                <div className="shrink-0 w-full sm:w-auto sm:text-right">
-                  {!n.is_read ? (
-                    <button
-                      className="btn border w-full sm:w-auto mt-3 sm:mt-0"
-                      disabled={marking===n.id}
-                      onClick={()=>markRead(n.id)}
-                    >
-                      {marking===n.id ? '...' : 'تمّت القراءة'}
-                    </button>
-                  ) : (
-                    <span className="text-xs text-gray-500 mt-2 sm:mt-0 block sm:inline">مقروء</span>
-                  )}
                 </div>
               </div>
-            </div>
-          )
-        })}
-        {filtered.length === 0 && (
-          <div className="p-6 text-center text-gray-500 border rounded-2xl">لا توجد إشعارات للعرض</div>
-        )}
+            )
+          })}
+          {filtered.length === 0 && (
+            <div className="p-6 text-center text-gray-500 border rounded-2xl bg-white">لا توجد إشعارات للعرض</div>
+          )}
+        </div>
       </div>
     </div>
   )
