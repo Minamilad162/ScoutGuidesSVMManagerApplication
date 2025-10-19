@@ -48,22 +48,35 @@ function cls(...xs: (string|false|undefined)[]) { return xs.filter(Boolean).join
 // ترتيب الترقية من الأقل للأعلى
 const PROMOTION_ORDER = ['sous_chef','aide','assistant','chef_de_legion'] as const
 
-// ==== Modal (fixed z-index so it stays above any drawer/backdrop) ====
+// ==== Modal (mobile-first, fullscreen on small screens, centered card on desktop) ====
 function Modal(props: { open: boolean; onClose: ()=>void; title?: string; children: any; footer?: any }) {
   if (!props.open) return null
   return (
-    <div className="fixed inset-0 z-[70]">
-      {/* backdrop */}
-      <button className="drawer-backdrop w-full h-full" onClick={props.onClose} />
-      {/* content */}
-      <div className="fixed inset-0 grid place-items-center p-3 z-[80]">
-        <div className="w-full max-w-5xl bg-white rounded-2xl border shadow-xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-lg font-bold">{props.title}</div>
-            <button className="burger" onClick={props.onClose} aria-label="Close">×</button>
+    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+      {/* Backdrop */}
+      <button
+        className="fixed inset-0 bg-black/30"
+        onClick={props.onClose}
+        aria-label="Close overlay"
+      />
+      {/* Shell: full height on mobile, centered card on ≥sm */}
+      <div className="fixed inset-x-0 bottom-0 top-0 sm:inset-0 sm:grid sm:place-items-center p-0 sm:p-3 z-[80]">
+        <div className="flex h-full w-full flex-col bg-white sm:h-auto sm:max-h-[85vh] sm:w-[min(100%,900px)] sm:rounded-2xl sm:border sm:shadow-xl">
+          {/* Header (sticky) */}
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-b sticky top-0 bg-white z-10">
+            <div className="text-base sm:text-lg font-bold truncate">{props.title}</div>
+            <button className="burger -mr-1 p-2" onClick={props.onClose} aria-label="Close">×</button>
           </div>
-          <div className="max-h-[70vh] overflow-auto pr-1">{props.children}</div>
-          <div className="flex items-center justify-end gap-2">{props.footer}</div>
+          {/* Content (scrollable) */}
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-3">{props.children}</div>
+          {/* Footer (sticky) */}
+          {props.footer && (
+            <div className="border-t px-4 py-3 bg-white sticky bottom-0">
+              <div className="flex items-center justify-end gap-2 flex-wrap">
+                {props.footer}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -543,7 +556,7 @@ export default function ChefsEvaluationOverview() {
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold">التقييم العام — القادة (Chef)</h1>
-        <div className="flex items_center gap-2">
+        <div className="flex items-center gap-2">
           <label className="text-sm">السنة</label>
           <select className="border rounded-xl p-2" value={year} onChange={e=>setYear(Number(e.target.value))}>
             {Array.from({length:6}).map((_,i)=>{ const y=THIS_YEAR-i; return <option key={y} value={y}>{y}</option> })}
@@ -619,7 +632,7 @@ export default function ChefsEvaluationOverview() {
           const exceptional = c ? vs.filter(v=>v.exceptional).length > c/2 : false
           return (
             <div key={m.id} className="card space-y-2">
-              <div className="flex items-center justify_between gap-2">
+              <div className="flex items-center justify-between gap-2">
                 <div className="font-bold">{m.full_name}</div>
                 <div className="flex items-center gap-2">
                   {promoted && <span className="px-2 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-700 text-xs">تم الترقية</span>}
@@ -661,7 +674,7 @@ export default function ChefsEvaluationOverview() {
             {/* Final evaluation */}
             <div className="border rounded-xl p-3">
               <div className="font-semibold mb-2">التقييم النهائي للسنة {year}</div>
-              <div className="grid md:grid-cols-[1fr,180px] gap-3">
+              <div className="grid sm:grid-cols-[1fr,200px] gap-3">
                 <div>
                   <label className="text-sm">ملاحظات القائد</label>
                   <textarea className="border rounded-xl p-2 w-full min-h-[110px]" placeholder="اكتب التقييم النهائي..." value={reviewText} onChange={e=>setReviewText(e.target.value)} />
@@ -706,46 +719,48 @@ export default function ChefsEvaluationOverview() {
                       <LoadingButton loading={savingQA} onClick={saveTermQA}>حفظ الإجابات</LoadingButton>
                     </div>
                     <div className="rounded-2xl border overflow-hidden">
-                      <table className="w-full text-sm table-auto">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="p-2 text-start">السؤال</th>
-                            <th className="p-2 text-center w-48">الإجابة</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {termQuestions.map(q => {
-                            const st = qaDraft[String(q.id)] || { yes: null, pct: null }
-                            return (
-                              <tr key={String(q.id)} className="border-t">
-                                <td className="p-2 align-top">{q.text}</td>
-                                <td className="p-2 text-center align-top">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <div className="inline-flex gap-2">
-                                      <TogglePill yes active={st.yes===true}  onClick={()=>setQaDraft(prev=>({...prev, [String(q.id)]: {...(prev[String(q.id)]||{pct:null}), yes:true }}))} />
-                                      <TogglePill yes={false} active={st.yes===false} onClick={()=>setQaDraft(prev=>({...prev, [String(q.id)]: {...(prev[String(q.id)]||{pct:null}), yes:false }}))} />
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[560px] text-sm table-auto">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="p-2 text-start">السؤال</th>
+                              <th className="p-2 text-center w-[220px]">الإجابة</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {termQuestions.map(q => {
+                              const st = qaDraft[String(q.id)] || { yes: null, pct: null }
+                              return (
+                                <tr key={String(q.id)} className="border-t">
+                                  <td className="p-2 align-top">{q.text}</td>
+                                  <td className="p-2 text-center align-top">
+                                    <div className="flex items-center justify-center gap-2">
+                                      <div className="inline-flex gap-2">
+                                        <TogglePill yes active={st.yes===true}  onClick={()=>setQaDraft(prev=>({...prev, [String(q.id)]: {...(prev[String(q.id)]||{pct:null}), yes:true }}))} />
+                                        <TogglePill yes={false} active={st.yes===false} onClick={()=>setQaDraft(prev=>({...prev, [String(q.id)]: {...(prev[String(q.id)]||{pct:null}), yes:false }}))} />
+                                      </div>
+                                      <input
+                                        type="number"
+                                        className="border rounded-xl p-1 w-20 text-center"
+                                        placeholder="%"
+                                        value={st.pct ?? ''}
+                                        onChange={e=>{
+                                          const v = e.target.value
+                                          const n = Number(v)
+                                          if (v==='' || (!Number.isNaN(n) && n>=0 && n<=100)) {
+                                            setQaDraft(prev=>({...prev, [String(q.id)]: {...(prev[String(q.id)]||{yes:null}), pct: v===''? null : n }}))
+                                          }
+                                        }}
+                                      />
                                     </div>
-                                    <input
-                                      type="number"
-                                      className="border rounded-xl p-1 w-20 text-center"
-                                      placeholder="%"
-                                      value={st.pct ?? ''}
-                                      onChange={e=>{
-                                        const v = e.target.value
-                                        const n = Number(v)
-                                        if (v==='' || (!Number.isNaN(n) && n>=0 && n<=100)) {
-                                          setQaDraft(prev=>({...prev, [String(q.id)]: {...(prev[String(q.id)]||{yes:null}), pct: v===''? null : n }}))
-                                        }
-                                      }}
-                                    />
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                          {termQuestions.length===0 && <tr><td className="p-3 text-center text-gray-500" colSpan={2}>لا توجد أسئلة</td></tr>}
-                        </tbody>
-                      </table>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                            {termQuestions.length===0 && <tr><td className="p-3 text-center text-gray-500" colSpan={2}>لا توجد أسئلة</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
 
