@@ -1,5 +1,4 @@
-// src/components/SideNav.tsx
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from './AuthProvider'
 import { supabase } from '../lib/supabase'
@@ -13,8 +12,8 @@ const IMAGES_URL  = 'https://drive.google.com/drive/folders/13wB3GMbm8CTxKLNomKB
 type Props = { onNavigate?: () => void }
 
 export default function SideNav({ onNavigate }: Props) {
-  // ❗ شِلّنا signOut من useAuth لتجنّب global sign-out
   const { roles, user } = useAuth()
+  const location = useLocation()
 
   // ===== Avatar =====
   const [avatar, setAvatar] = useState<string | null>(null)
@@ -50,8 +49,18 @@ export default function SideNav({ onNavigate }: Props) {
     return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
   })().toUpperCase()
 
-  // ===== Unread notifications (Realtime + fallback polling) =====
+  // ===== Unread notifications (Realtime + event bridge + fallback polling) =====
   const [unread, setUnread] = useState(0)
+
+  // استقبل عدّاد غير المقروء القادم من صفحة Notifications
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (typeof e?.detail === 'number') setUnread(e.detail)
+    }
+    window.addEventListener('app:notif-unread', handler as any)
+    return () => window.removeEventListener('app:notif-unread', handler as any)
+  }, [])
+
   useEffect(() => {
     if (!user?.id) return
     let isMounted = true
@@ -69,14 +78,16 @@ export default function SideNav({ onNavigate }: Props) {
       } catch {}
     }
 
+    // بدايةً
     fetchCount()
 
+    // ✅ اشترك على تغييرات user_notifications (اللي بيتم تحديثها عند "تمّت القراءة")
     const ch = supabase
       .channel(`notif_count_sidebar_${user.id}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        () => fetchCount()
+        { event: '*', schema: 'public', table: 'user_notifications', filter: `user_id=eq.${user.id}` },
+        () => { fetchCount() }
       )
       .subscribe()
 
@@ -89,6 +100,13 @@ export default function SideNav({ onNavigate }: Props) {
       supabase.removeChannel(ch)
     }
   }, [user?.id])
+
+  // ✅ صفّر الشارة فورًا عند دخول صفحة الإشعارات (optimistic clear)
+  useEffect(() => {
+    if (location.pathname === '/app/notifications') {
+      setUnread(0)
+    }
+  }, [location.pathname])
 
   // ===== Roles / Nav items =====
   const isAdmin = roles.some((r: RoleRow) => r.role_slug === 'admin')
@@ -111,6 +129,8 @@ export default function SideNav({ onNavigate }: Props) {
     const res: Item[] = [{ to: '/app', label: 'الرئيسية' }]
 
     if (isAdmin) {
+      pushUnique(res, '/app/AdminDashboard', 'لوحة التحكم')
+
       pushUnique(res, '/app/AdminReservationsAll', 'الحجوزات')
       pushUnique(res, '/app/AdminFieldReservations', 'ادارة الارض')
       pushUnique(res, '/app/AdminAttendance', 'إدارة الحضور')
@@ -124,6 +144,8 @@ export default function SideNav({ onNavigate }: Props) {
       pushUnique(res, '/app/AdminEvalQuestions', 'أسئلة التقييم')
       pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
       pushUnique(res, '/app/MaterialsReturnApprove', 'تسليم العهده')
+
+      pushUnique(res, '/app/ChefsEvaluationOverview', 'التقييم النهائى ')
     } else {
       if (has('chef_de_legion')) {
         pushUnique(res, '/app/LegionEvaluations', 'تقييم فريقي')
@@ -132,6 +154,7 @@ export default function SideNav({ onNavigate }: Props) {
         pushUnique(res, '/app/TeamFinance', 'ميزانية الفريق')
         pushUnique(res, '/app/MaterialTeamReservation', 'الأدوات')
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
+        pushUnique(res, '/app/ChefsEvaluationOverview', 'التقييم النهائى ')
       }
       if (has('responsable_finance') && has('chef_de_legion')) {
         pushUnique(res, '/app/AdminFinance', 'ادارة الميزانية')
@@ -147,22 +170,21 @@ export default function SideNav({ onNavigate }: Props) {
         roles.some((r: RoleRow) => r.role_slug === 'responsable_materials')
       if (showMaterialsApprove) {
         pushUnique(res, '/app/MaterialsReturnApprove', 'تسليم العهده'),
-      pushUnique(res, '/app/MaterialAdmin', 'ادارة الأدوات ')
-                pushUnique(res, '/app/AdminFieldReservations', 'ادارة الارض')
-
-
+        pushUnique(res, '/app/MaterialAdmin', 'ادارة الأدوات ')
+        pushUnique(res, '/app/AdminFieldReservations', 'ادارة الارض')
       }
       if (isGlobalSecretary) {
         pushUnique(res, '/app/AdminSecretary', 'إدارة السكرتارية')
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
       } else if (hasTeamSecretary) {
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
-        pushUnique(res, '/app/TeamSecretaryAttendance', 'غياب فريقي')
+        pushUnique(res, '/app/TeamSecretaryAttendance', 'غياب فريقي')        
       }
     }
 
-    // يظهر للجميع
     pushUnique(res, '/app/evaluation', 'تقييمي')
+        pushUnique(res, 'storage', 'اماكن العهدة')
+
     pushUnique(res, '/app/notifications', 'الإشعارات')
 
     return res
@@ -176,14 +198,10 @@ export default function SideNav({ onNavigate }: Props) {
     if (signingOut) return
     setSigningOut(true)
     try {
-      // محلي فقط (الجهاز الحالي)
       await supabase.auth.signOut({ scope: 'local' })
-      // اقفل أي قوائم جانبية/مودال
       handleNavigate()
-      // روح لصفحة البداية/الدخول
       window.location.replace('/')
     } catch {
-      // حتى لو حصل خطأ، جرّب برضه تروّح للوجين
       handleNavigate()
       window.location.replace('/')
     } finally {

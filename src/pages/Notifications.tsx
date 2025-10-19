@@ -11,7 +11,7 @@ type Notif = {
   created_at: string
 }
 
-/** -------- Helpers to format & extract fields from payload -------- */
+/** -------- Helpers -------- */
 const pickAny = (obj: any, ...keys: string[]) => {
   if (!obj) return undefined
   for (const k of keys) {
@@ -47,7 +47,6 @@ function timeAgo(d: string) {
   const days = Math.round(h/24); return `${days} يوم`
 }
 
-/** نطبّع الـpayload لمفاتيح موحّدة بغض النظر عن التسميات */
 function normalizePayload(p: any) {
   return {
     teamId:         pickAny(p, 'team_id', 'teamId'),
@@ -82,7 +81,6 @@ function normalizePayload(p: any) {
   }
 }
 
-/** -------- Visual meta per notification type -------- */
 const typeMeta: Record<string, {
   title: string
   tone: 'info'|'warn'|'danger'
@@ -176,7 +174,6 @@ const typeMeta: Record<string, {
   },
 }
 
-/** مظهر الكارت حسب نوعه */
 function clsTone(tone: 'info'|'warn'|'danger') {
   switch (tone) {
     case 'warn': return 'border-amber-300 bg-amber-50'
@@ -185,7 +182,6 @@ function clsTone(tone: 'info'|'warn'|'danger') {
   }
 }
 
-/** --------- Component --------- */
 export default function Notifications() {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
@@ -203,7 +199,12 @@ export default function Notifications() {
       if (!showRead) q = q.eq('is_read', false)
       const { data, error } = await q
       if (error) throw error
-      setRows((data as any) ?? [])
+      const list = (data as any) ?? []
+      setRows(list)
+
+      // ✅ ابعت عدّاد غير المقروء لسايدنـاف مباشرة
+      const unreadCount = list.filter((n: Notif) => !n.is_read).length
+      window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
       toast.error(e.message || 'تعذر تحميل الإشعارات')
     } finally {
@@ -235,8 +236,17 @@ export default function Notifications() {
     try {
       const { error } = await supabase.rpc('mark_notifications_read', { _ids: [id] })
       if (error) throw error
-      if (showRead) setRows(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
-      else setRows(prev => prev.filter(n => n.id !== id))
+
+      // ✅ حدّث الواجهة فورًا + ابعت العدّاد الجديد
+      let newRows: Notif[]
+      if (showRead) {
+        newRows = rows.map(n => n.id === id ? { ...n, is_read: true } : n)
+      } else {
+        newRows = rows.filter(n => n.id !== id)
+      }
+      setRows(newRows)
+      const unreadCount = newRows.filter(n => !n.is_read).length
+      window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحديث')
     } finally { setMarking(null) }
@@ -247,8 +257,12 @@ export default function Notifications() {
     try {
       const { error } = await supabase.rpc('mark_all_my_notifications_read')
       if (error) throw error
+
+      // ✅ حدّث الواجهة فورًا + ابعت صفر
       if (showRead) setRows(prev => prev.map(n => ({ ...n, is_read: true })))
       else setRows([])
+
+      window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: 0 }))
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحديث')
     } finally { setMarkingAll(false) }
@@ -259,7 +273,7 @@ export default function Notifications() {
       <PageLoader visible={loading} text="جاري التحميل..." />
 
       <div className="container space-y-4">
-        {/* ===== Toolbar (متّزن على الديسكتوب) ===== */}
+        {/* ===== Toolbar ===== */}
         <div className="card toolbar">
           <h1 className="text-xl font-bold">الإشعارات</h1>
 
@@ -297,7 +311,6 @@ export default function Notifications() {
             const text = meta?.makeText(n, np) || (np.note ?? '—')
             const tone = meta?.tone || 'info'
             const icon = meta?.icon || '🔔'
-
             const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
 
             return (
@@ -305,11 +318,8 @@ export default function Notifications() {
                 key={n.id}
                 className={`notif-card rounded-2xl border p-4 ${clsTone(tone)} ${n.is_read ? 'opacity-60' : ''}`}
               >
-                {/* Grid يحل مشاكل الديسكتوب: المحتوى + عمود زر الأكشن */}
                 <div className="notif-grid">
-                  {/* المحتوى */}
                   <div className="min-w-0">
-                    {/* ترويسة */}
                     <div className="grid items-center gap-2 md:grid-cols-[1fr,auto]">
                       <div className="flex items-center gap-2 min-w-0 flex-wrap">
                         <span className="text-lg">{icon}</span>
@@ -321,12 +331,10 @@ export default function Notifications() {
                       <span className="notif-time">{timeAgo(n.created_at)}</span>
                     </div>
 
-                    {/* النص */}
                     <div className="mt-2 text-sm leading-6 whitespace-pre-line break-words">
                       {text}
                     </div>
 
-                    {/* Chips */}
                     <div className="mt-3 chips">
                       {np.teamName && <span className="chip">فريق: <b>{np.teamName}</b></span>}
                       {np.memberName && <span className="chip">الاسم: <b>{np.memberName}</b></span>}
@@ -339,7 +347,6 @@ export default function Notifications() {
                       {np.termLabel && <span className="chip">الترم: <b>{np.termLabel}</b></span>}
                     </div>
 
-                    {/* تفاصيل مختصرة */}
                     <div className="mt-3 details-grid">
                       {(np.from || np.to) && (
                         <div className="detail">
@@ -385,7 +392,6 @@ export default function Notifications() {
                     </div>
                   </div>
 
-                  {/* زرار الأكشن */}
                   <div className="actions-col">
                     {!n.is_read ? (
                       <button

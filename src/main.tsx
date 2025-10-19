@@ -12,6 +12,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ToastProvider>
   </React.StrictMode>
 )
+
 function setFavicon(url: string) {
   let fav = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
   if (!fav) { fav = document.createElement('link'); fav.rel = 'icon'; document.head.appendChild(fav); }
@@ -24,6 +25,7 @@ function setFavicon(url: string) {
 }
 
 setFavicon(faviconUrl);
+
 // Register SW (مرة واحدة)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

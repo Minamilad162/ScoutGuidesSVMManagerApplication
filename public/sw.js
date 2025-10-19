@@ -42,6 +42,81 @@ self.addEventListener('fetch', (event) => {
     })());
     return;
   }
+self.addEventListener('push', (event) => {
+  let data = {}
+  try { data = event.data ? event.data.json() : {} } catch {}
+  const title = data.title || 'إشعار جديد'
+  const options = {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-72.png',
+    data: { url: data.url || '/notifications' }
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = event.notification?.data?.url || '/notifications'
+  event.waitUntil(
+    (async () => {
+      const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const client of allClients) {
+        if ('focus' in client) { client.focus(); client.navigate(url); return }
+      }
+      if (clients.openWindow) await clients.openWindow(url)
+    })()
+  )
+})
+/* global self */
+
+self.addEventListener('install', (event) => {
+  // ممكن تضيف caching لو حابب
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  self.clients.claim();
+});
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (_) {
+    data = { title: 'Scout Manager', body: event.data && event.data.text ? event.data.text() : '' };
+  }
+
+  const title = data.title || 'Scout Manager';
+  const options = {
+    body: data.body || '',
+    data: data.data || {},
+    icon: '/icons/icon-192.png', // حط أيقوناتك
+    badge: '/icons/badge.png',
+    vibrate: [100, 50, 100],
+    actions: data.actions || [] // {action, title, icon}
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const urlToOpen = (event.notification.data && event.notification.data.url) || '/app/notifications';
+
+  event.waitUntil((async () => {
+    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    let client = allClients.find(c => c.url.includes(self.origin) || c.url.includes(location.origin));
+
+    if (client) {
+      client.focus();
+      client.navigate(urlToOpen);
+    } else {
+      self.clients.openWindow(urlToOpen);
+    }
+  })());
+});
 
   // Static GETs: cache-first
   if (request.method === 'GET' && new URL(request.url).origin === self.location.origin) {

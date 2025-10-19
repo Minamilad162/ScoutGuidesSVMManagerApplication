@@ -1,7 +1,8 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AuthProvider, useAuth } from './components/AuthProvider'
 import SideNav from './components/SideNav'
+import { supabase } from './lib/supabase' // ⬅️ NEW: علشان نخزن الاشتراك
 
 import Attendance from './pages/Attendance'
 import Finance from './pages/Finance'
@@ -9,9 +10,6 @@ import Materials from './pages/Materials'
 import Evaluation from './pages/Evaluation'
 import Notifications from './pages/Notifications'
 import Admin from './pages/Admin'
-
-
-
 
 import Login from './pages/Login'
 import Home from './pages/Home'
@@ -36,11 +34,87 @@ import AdminEvents from './pages/AdminEvents'
 import AdminEvalQuestions from './pages/AdminEvalQuestions'
 import FinanceEvent from './pages/financeEvent'
 import MaterialsReturnApprove from './pages/MaterialsReturnApprove'
+import ChefsEvaluationOverview from './pages/ChefsEvaluationOverview'
+import AdminDashboard from './pages/AdminDashboard'
+import StorageInventory from './pages/StorageInventory'
+
+// ======= Helpers for Push =======
+function urlBase64ToUint8Array(base64String: string) {
+  // يحوّل VAPID public key (base64url) لـUint8Array
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
+  return outputArray
+}
+function bufToBase64(buf: ArrayBuffer | null) {
+  if (!buf) return ''
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+async function ensurePushSubscription(userId?: string | null) {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    if (!userId) return
+
+    // لازم المفتاح العام من .env (Vite)
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
+    if (!vapidPublicKey) {
+      console.warn('VITE_VAPID_PUBLIC_KEY is missing')
+      return
+    }
+
+    // لو الإذن “denied” خلاص ما نحاولش
+    if (Notification.permission === 'denied') return
+
+    // لو لسه “default” جرّب نطلب الإذن
+    if (Notification.permission === 'default') {
+      const perm = await Notification.requestPermission()
+      if (perm !== 'granted') return
+    }
+
+    const reg = await navigator.serviceWorker.ready
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      })
+    }
+
+    // خزّن الاشتراك في Supabase
+    const endpoint = sub.endpoint
+    const p256dh = bufToBase64(sub.getKey('p256dh'))
+    const auth = bufToBase64(sub.getKey('auth'))
+
+    // غيّر اسم الجدول/الأعمدة حسب سكيمتك — مثال شائع:
+    // webpush_subscriptions(id, user_id, endpoint, p256dh, auth, created_at)
+    await supabase
+      .from('webpush_subscriptions')
+      .upsert(
+        { user_id: userId, endpoint, p256dh, auth },
+        { onConflict: 'user_id,endpoint' } as any
+      )
+  } catch (e) {
+    console.warn('push subscription failed', e)
+  }
+}
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
   const loc = useLocation()
   const [navOpen, setNavOpen] = useState(false) // مقفول افتراضيًا
+
+  // ⬇️ NEW: جرّب الاشتراك في الإشعارات بعد تسجيل الدخول
+  useEffect(() => {
+    if (user?.id) {
+      ensurePushSubscription(user.id)
+    }
+  }, [user?.id])
 
   if (loading) return <div className="center">...loading</div>
   if (!user) return <Navigate to="/" state={{ from: loc }} replace />
@@ -112,12 +186,15 @@ export default function App() {
             <Route path="LegionAttendance" element={<LegionAttendance />} />
             <Route path="financeEvent" element={<FinanceEvent />} />
             <Route path="MaterialsReturnApprove" element={<MaterialsReturnApprove />} />
+            <Route path="AdminDashboard" element={<AdminDashboard />} />
+            <Route path="storage" element={<StorageInventory />} />
 
             <Route path="/app/AdminEvalQuestions" element={<AdminEvalQuestions />} />
             <Route path="/app/AdminFinance" element={<AdminFinance />} />
             <Route path="/app/AdminSecretary" element={<AdminSecretary />} />
             <Route path="/app/TeamSecretaryAttendance" element={<TeamSecretaryAttendance />} />
             <Route path="/app/AdminEvents" element={<AdminEvents />} />
+            <Route path="/app/ChefsEvaluationOverview" element={<ChefsEvaluationOverview />} />
 
             <Route path="TeamSecretary" element={<TeamSecretary />} />
             <Route path="/app/TeamFinance" element={<TeamFinance />} />
