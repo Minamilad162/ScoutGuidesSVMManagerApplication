@@ -82,16 +82,20 @@ export default function AdminMembers() {
         throw upErr
       }
       const { data: pub } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path)
-      return pub.publicUrl as string
+      return pub?.publicUrl as string
     } catch (e:any) {
       toast?.error?.(e.message || 'تعذر رفع الصورة')
       return null
     }
   }
 
-  useEffect(()=>{ init() },[])
-  async function init() {
+  // ✅ حمّل البيانات أول ما يبقى isAdmin = true
+  useEffect(() => {
     if (!isAdmin) { setLoading(false); return }
+    init()
+  }, [isAdmin])
+
+  async function init() {
     setLoading(true)
     try {
       const [{ data: ts, error: te }, { data: rk, error: re }] = await Promise.all([
@@ -100,10 +104,13 @@ export default function AdminMembers() {
       ])
       if (te) throw te
       if (re) throw re
-      setTeams((ts as any) ?? [])
+      const teamsArr = (ts as any) ?? []
+      setTeams(teamsArr)
       setRanks((rk as any) ?? [])
-      if (!chefTeamId && ts && ts.length) setChefTeamId(ts[0].id)
-      if (!eqTeamId && ts && ts.length) setEqTeamId(ts[0].id)
+
+      // اضبط قيمة افتراضية للقائمة لو فاضية
+      if (!chefTeamId && teamsArr.length) setChefTeamId(teamsArr[0].id)
+      if (!eqTeamId && teamsArr.length) setEqTeamId(teamsArr[0].id)
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحميل')
     } finally {
@@ -185,6 +192,11 @@ export default function AdminMembers() {
           .single()
         if (em) throw em
         memberId = ins?.id ?? null
+      }
+
+      // (اختياري) رفع الصورة لو متاحة
+      if (memberId && chefAvatar) {
+        await uploadAvatarOrWarn(chefAvatar, chefTeamId, memberId, toast)
       }
 
       const items: { role_slug: string; team_id: string | null }[] = []
@@ -273,6 +285,7 @@ export default function AdminMembers() {
             <div className="min-w-0">
               <label className="text-sm">الفريق</label>
               <select className="border rounded-xl p-2 w-full cursor-pointer" value={chefTeamId} onChange={e=>setChefTeamId(e.target.value)}>
+                {teams.length === 0 && <option value="">لا توجد فرق</option>}
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
@@ -361,6 +374,7 @@ export default function AdminMembers() {
             <div className="min-w-0">
               <label className="text-sm">الفريق</label>
               <select className="border rounded-xl p-2 w-full cursor-pointer" value={eqTeamId} onChange={e=>setEqTeamId(e.target.value)}>
+                {teams.length === 0 && <option value="">لا توجد فرق</option>}
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
