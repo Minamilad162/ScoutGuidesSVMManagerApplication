@@ -158,13 +158,15 @@ export default function SideNav({ onNavigate }: Props) {
       }
       if (has('responsable_finance') && has('chef_de_legion')) {
         pushUnique(res, '/app/AdminFinance', 'ادارة الميزانية')
+        pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
+
       }
       if (has('responsable_finance') && !has('chef_de_legion')) {
         pushUnique(res, '/app/TeamFinance', 'ميزانية فريقى')
       }
-      if (isAdmin || has('responsable_finance')) {
-        pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
-      }
+      // if (isAdmin || has('responsable_finance')) {
+      //   pushUnique(res, '/app/financeEvent', 'ميزانية المجموعة')
+      // }
       const showMaterialsApprove =
         roles.some((r: RoleRow) => r.role_slug === 'admin') ||
         roles.some((r: RoleRow) => r.role_slug === 'responsable_materials')
