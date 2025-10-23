@@ -190,6 +190,8 @@ export default function SideNav({ onNavigate }: Props) {
 
     pushUnique(res, '/app/evaluation', 'تقييمي')
         pushUnique(res, 'storage', 'اماكن العهدة')
+            pushUnique(res, '', 'AI Tools')
+
 
     pushUnique(res, '/app/notifications', 'الإشعارات')
 
