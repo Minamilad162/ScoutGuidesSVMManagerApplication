@@ -182,6 +182,64 @@ function clsTone(tone: 'info'|'warn'|'danger') {
   }
 }
 
+/** ===== بصمة (Fingerprint) لدمج التكرارات حسب النوع ===== */
+function notifKey(n: Notif): string {
+  const np = normalizePayload(n.payload)
+  const safe = (x: any) => (x === undefined || x === null) ? '' : String(x)
+  switch (n.ntype) {
+    case 'equipier_3_absences': {
+      const dates = Array.isArray(np.dates) ? [...np.dates].sort().join('|') : ''
+      return `equipier_3_absences|${safe(np.memberId)}|${safe(np.teamId)}|${dates}`
+    }
+    case 'field_conflict':
+      return `field_conflict|${safe(np.zoneId)}|${safe(np.from)}|${safe(np.to)}|${safe(np.teamId)}`
+    case 'materials_conflict':
+      return `materials_conflict|${safe(np.materialId)}|${safe(np.from)}|${safe(np.to)}|${safe(np.teamId)}`
+    case 'budget_low':
+      return `budget_low|${safe(np.teamId)}|${safe(np.termYear)}|${safe(np.termLabel)}`
+    case 'budget_depleted':
+      return `budget_depleted|${safe(np.teamId)}|${safe(np.termYear)}|${safe(np.termLabel)}`
+    case 'materials_return_all_ok':
+    case 'materials_return_not_all':
+      return `${n.ntype}|${safe(np.teamId)}|${safe(np.extra?.date)}`
+    case 'event': {
+      const when = safe(np.from || np.extra?.starts_at)
+      return `event|${safe(np.extra?.title)}|${when}|${safe(np.extra?.location)}`
+    }
+    default: {
+      // fallback عام لو ظهر نوع جديد
+      const base = JSON.stringify([
+        safe(np.teamId), safe(np.memberId), safe(np.materialId), safe(np.zoneId),
+        safe(np.mtype), safe(np.termLabel), safe(np.from), safe(np.to),
+        safe(np.amount), safe(np.remaining)
+      ])
+      return `${n.ntype}|${base}`
+    }
+  }
+}
+
+/** يدمج التكرارات ويحتفظ بالأحدث (حسب created_at) */
+function dedupNotifications(list: Notif[]) {
+  const keyToLatest = new Map<string, Notif>()
+  const keyToIds: Record<string, string[]> = {}
+  const idToKey: Record<string, string> = {}
+
+  for (const n of list) {
+    const key = notifKey(n)
+    idToKey[n.id] = key
+    if (!keyToIds[key]) keyToIds[key] = []
+    keyToIds[key].push(n.id)
+
+    const prev = keyToLatest.get(key)
+    if (!prev || new Date(n.created_at).getTime() > new Date(prev.created_at).getTime()) {
+      keyToLatest.set(key, n)
+    }
+  }
+  const merged = Array.from(keyToLatest.values())
+    .sort((a,b)=> new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  return { merged, keyToIds, idToKey }
+}
+
 export default function Notifications() {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
@@ -191,6 +249,10 @@ export default function Notifications() {
   const [marking, setMarking] = useState<string | null>(null)
   const [markingAll, setMarkingAll] = useState(false)
 
+  // خرائط لمجموعات التكرار
+  const [keyToIds, setKeyToIds] = useState<Record<string, string[]>>({})
+  const [idToKey, setIdToKey] = useState<Record<string, string>>({})
+
   useEffect(() => { refresh() }, [showRead])
   async function refresh() {
     setLoading(true)
@@ -199,11 +261,16 @@ export default function Notifications() {
       if (!showRead) q = q.eq('is_read', false)
       const { data, error } = await q
       if (error) throw error
-      const list = (data as any) ?? []
-      setRows(list)
+      const list: Notif[] = (data as any) ?? []
 
-      // ✅ ابعت عدّاد غير المقروء لسايدنـاف مباشرة
-      const unreadCount = list.filter((n: Notif) => !n.is_read).length
+      // ✅ دمج التكرارات
+      const { merged, keyToIds: _k2i, idToKey: _i2k } = dedupNotifications(list)
+      setRows(merged)
+      setKeyToIds(_k2i)
+      setIdToKey(_i2k)
+
+      // ✅ ابعت عدّاد غير المقروء بعد الدمج
+      const unreadCount = merged.filter(n => !n.is_read).length
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
       toast.error(e.message || 'تعذر تحميل الإشعارات')
@@ -234,17 +301,31 @@ export default function Notifications() {
   async function markRead(id: string) {
     setMarking(id)
     try {
-      const { error } = await supabase.rpc('mark_notifications_read', { _ids: [id] })
+      // ✅ علّم كل النسخ المطابقة للبصمة (لو كانت موجودة في الجدول) كمقروء
+      const key = idToKey[id]
+      const ids = key ? (keyToIds[key] || [id]) : [id]
+
+      const { error } = await supabase.rpc('mark_notifications_read', { _ids: ids })
       if (error) throw error
 
-      // ✅ حدّث الواجهة فورًا + ابعت العدّاد الجديد
+      // حدّث الواجهة: صفّي العنصر/العناصر
       let newRows: Notif[]
       if (showRead) {
-        newRows = rows.map(n => n.id === id ? { ...n, is_read: true } : n)
+        const idsSet = new Set(ids)
+        newRows = rows.map(n => idsSet.has(n.id) ? { ...n, is_read: true } : n)
       } else {
-        newRows = rows.filter(n => n.id !== id)
+        const idsSet = new Set(ids)
+        newRows = rows.filter(n => !idsSet.has(n.id))
       }
       setRows(newRows)
+
+      // لو حبّيت تحدث الخرائط محليًا (اختياري)
+      if (key) {
+        const k2i = { ...keyToIds }
+        delete k2i[key]
+        setKeyToIds(k2i)
+      }
+
       const unreadCount = newRows.filter(n => !n.is_read).length
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
@@ -258,11 +339,13 @@ export default function Notifications() {
       const { error } = await supabase.rpc('mark_all_my_notifications_read')
       if (error) throw error
 
-      // ✅ حدّث الواجهة فورًا + ابعت صفر
       if (showRead) setRows(prev => prev.map(n => ({ ...n, is_read: true })))
       else setRows([])
 
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: 0 }))
+      // صفّي الخرائط
+      setKeyToIds({})
+      setIdToKey({})
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحديث')
     } finally { setMarkingAll(false) }
