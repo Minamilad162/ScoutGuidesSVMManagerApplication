@@ -47,6 +47,7 @@ function timeAgo(d: string) {
   const days = Math.round(h/24); return `${days} يوم`
 }
 
+/** نطبّع الـpayload */
 function normalizePayload(p: any) {
   return {
     teamId:         pickAny(p, 'team_id', 'teamId'),
@@ -67,8 +68,12 @@ function normalizePayload(p: any) {
     mtype:          pickAny(p, 'mtype', 'meeting_type'),
     termLabel:      pickAny(p, 'term_label', 'term_name'),
     termYear:       pickAny(p, 'term_year', 'year'),
-    remaining:      pickAny(p, 'remaining', 'remaining_amount'),
-    amount:         pickAny(p, 'amount', 'amount_total'),
+
+    // === ميزانية ===
+    amount:         pickAny(p, 'amount', 'amount_total', 'budget_total', 'total'),
+    remaining:      pickAny(p, 'remaining', 'remaining_amount', 'budget_remaining'),
+    remainingPct:   pickAny(p, 'remaining_percent', 'remaining_pct', 'pct_remaining'),
+
     missing:        Array.isArray(p?.missing) ? p.missing : undefined,
     dates: (
       Array.isArray(p?.dates) ? p.dates
@@ -81,6 +86,20 @@ function normalizePayload(p: any) {
   }
 }
 
+/** احسب نسبة المتبقي (لو قدرت) */
+function computeRemainingPct(np: ReturnType<typeof normalizePayload>): number | null {
+  const direct = Number(np.remainingPct)
+  if (!Number.isNaN(direct) && direct >= 0) {
+    return Math.round(direct)
+  }
+  const remaining = Number(np.remaining)
+  const total = Number(np.amount)
+  if (!Number.isNaN(remaining) && !Number.isNaN(total) && total > 0) {
+    return Math.round((remaining / total) * 100)
+  }
+  return null
+}
+
 const typeMeta: Record<string, {
   title: string
   tone: 'info'|'warn'|'danger'
@@ -91,8 +110,11 @@ const typeMeta: Record<string, {
     title: 'تنبيه الميزانية',
     tone: 'warn',
     icon: '💸',
-    makeText: (_, np) =>
-      `ميزانية فريق ${np.teamName ?? '—'}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} أقل من 25%. المتبقي: ${np.remaining ?? '—'} EGP.`,
+    makeText: (_, np) => {
+      const pct = computeRemainingPct(np)
+      const pctTxt = (pct !== null ? ` (${pct}%)` : '')
+      return `ميزانية فريق ${np.teamName ?? '—'}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} أقل من 25%. المتبقي: ${np.remaining ?? '—'} EGP${pctTxt}.`
+    },
   },
   budget_depleted: {
     title: 'نفاد الميزانية',
@@ -182,7 +204,7 @@ function clsTone(tone: 'info'|'warn'|'danger') {
   }
 }
 
-/** ===== بصمة (Fingerprint) لدمج التكرارات حسب النوع ===== */
+/** ===== بصمة (Fingerprint) لدمج التكرارات ===== */
 function notifKey(n: Notif): string {
   const np = normalizePayload(n.payload)
   const safe = (x: any) => (x === undefined || x === null) ? '' : String(x)
@@ -207,7 +229,6 @@ function notifKey(n: Notif): string {
       return `event|${safe(np.extra?.title)}|${when}|${safe(np.extra?.location)}`
     }
     default: {
-      // fallback عام لو ظهر نوع جديد
       const base = JSON.stringify([
         safe(np.teamId), safe(np.memberId), safe(np.materialId), safe(np.zoneId),
         safe(np.mtype), safe(np.termLabel), safe(np.from), safe(np.to),
@@ -218,7 +239,7 @@ function notifKey(n: Notif): string {
   }
 }
 
-/** يدمج التكرارات ويحتفظ بالأحدث (حسب created_at) */
+/** دمج التكرارات مع الاحتفاظ بالأحدث */
 function dedupNotifications(list: Notif[]) {
   const keyToLatest = new Map<string, Notif>()
   const keyToIds: Record<string, string[]> = {}
@@ -238,6 +259,16 @@ function dedupNotifications(list: Notif[]) {
   const merged = Array.from(keyToLatest.values())
     .sort((a,b)=> new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   return { merged, keyToIds, idToKey }
+}
+
+/** فلتر خاص: budget_low لازم يكون < 25% */
+function passesBudgetLowRule(n: Notif): boolean {
+  if (n.ntype !== 'budget_low') return true
+  const np = normalizePayload(n.payload)
+  const pct = computeRemainingPct(np)
+  // لو عرفنا النسبة: لازم تكون < 25; لو مش عارفينها، نعرض الإشعار كما هو (يفترض السيرفر أرسله صح)
+  if (pct === null) return true
+  return pct < 25
 }
 
 export default function Notifications() {
@@ -263,14 +294,17 @@ export default function Notifications() {
       if (error) throw error
       const list: Notif[] = (data as any) ?? []
 
-      // ✅ دمج التكرارات
+      // دمج تكرارات
       const { merged, keyToIds: _k2i, idToKey: _i2k } = dedupNotifications(list)
-      setRows(merged)
+
+      // فلتر budget_low < 25%
+      const mergedFiltered = merged.filter(passesBudgetLowRule)
+
+      setRows(mergedFiltered)
       setKeyToIds(_k2i)
       setIdToKey(_i2k)
 
-      // ✅ ابعت عدّاد غير المقروء بعد الدمج
-      const unreadCount = merged.filter(n => !n.is_read).length
+      const unreadCount = mergedFiltered.filter(n => !n.is_read).length
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
       toast.error(e.message || 'تعذر تحميل الإشعارات')
@@ -280,9 +314,10 @@ export default function Notifications() {
   }
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return rows
+    const base = rows
+    if (!search.trim()) return base
     const s = search.toLowerCase()
-    return rows.filter(n => {
+    return base.filter(n => {
       const meta = typeMeta[n.ntype]
       const np = normalizePayload(n.payload)
       const title = meta?.title || n.ntype.replace(/_/g,' ')
@@ -301,14 +336,12 @@ export default function Notifications() {
   async function markRead(id: string) {
     setMarking(id)
     try {
-      // ✅ علّم كل النسخ المطابقة للبصمة (لو كانت موجودة في الجدول) كمقروء
       const key = idToKey[id]
       const ids = key ? (keyToIds[key] || [id]) : [id]
 
       const { error } = await supabase.rpc('mark_notifications_read', { _ids: ids })
       if (error) throw error
 
-      // حدّث الواجهة: صفّي العنصر/العناصر
       let newRows: Notif[]
       if (showRead) {
         const idsSet = new Set(ids)
@@ -319,7 +352,6 @@ export default function Notifications() {
       }
       setRows(newRows)
 
-      // لو حبّيت تحدث الخرائط محليًا (اختياري)
       if (key) {
         const k2i = { ...keyToIds }
         delete k2i[key]
@@ -343,7 +375,6 @@ export default function Notifications() {
       else setRows([])
 
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: 0 }))
-      // صفّي الخرائط
       setKeyToIds({})
       setIdToKey({})
     } catch (e:any) {
@@ -395,6 +426,9 @@ export default function Notifications() {
             const tone = meta?.tone || 'info'
             const icon = meta?.icon || '🔔'
             const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
+
+            // نسبة المتبقي (لعرضها كـتفصيلة إضافية لو متوفرة)
+            const pctLeft = computeRemainingPct(np)
 
             return (
               <div
@@ -454,21 +488,16 @@ export default function Notifications() {
                         </div>
                       )}
 
-                      {np.mtype && (
-                        <div className="detail">
-                          <div className="detail-label">نوع اليوم</div>
-                          <div><b>{np.mtype === 'preparation' ? 'تحضير' : np.mtype === 'meeting' ? 'اجتماع' : np.mtype}</b></div>
-                        </div>
-                      )}
+                      {/* تفاصيل الميزانية (لو موجودة) */}
                       {np.remaining !== undefined && (
                         <div className="detail">
                           <div className="detail-label">المتبقي</div>
-                          <div><b>{np.remaining} EGP</b></div>
+                          <div><b>{np.remaining} EGP{pctLeft !== null ? ` (${pctLeft}%)` : ''}</b></div>
                         </div>
                       )}
                       {np.amount !== undefined && (
                         <div className="detail">
-                          <div className="detail-label">المبلغ</div>
+                          <div className="detail-label">الميزانية الكلية</div>
                           <div><b>{np.amount} EGP</b></div>
                         </div>
                       )}
