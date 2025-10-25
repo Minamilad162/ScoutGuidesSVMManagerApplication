@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
 import { useToast } from '../components/ui/Toaster'
+import { useAuth } from '../components/AuthProvider'
 
 type Notif = {
   id: string
@@ -20,12 +21,15 @@ const pickAny = (obj: any, ...keys: string[]) => {
   }
   return undefined
 }
-const toNum = (v: any): number | null => {
-  const n = typeof v === 'string' ? Number(v.replace(/[^\d.-]/g,'')) : Number(v)
+const toNumber = (x: any): number | null => {
+  if (x === null || x === undefined || x === '') return null
+  const n = Number(x)
   return Number.isFinite(n) ? n : null
 }
-const egp = (v?: number | null) =>
-  (v === null || v === undefined) ? '—' : v.toLocaleString('en-US')
+const fmtMoney = (n: number | null | undefined) => {
+  if (n === null || n === undefined) return '—'
+  try { return `${Math.round(n).toLocaleString()} EGP` } catch { return `${n} EGP` }
+}
 
 function fmtDate(d?: string) {
   if (!d) return '—'
@@ -53,104 +57,43 @@ function timeAgo(d: string) {
   const days = Math.round(h/24); return `${days} يوم`
 }
 
-/** نطبّع الـpayload */
+/** نطبّع الـpayload لمفاتيح موحّدة */
 function normalizePayload(p: any) {
-  // teamName: حاول نقرأ من حقول مباشرة أو من كائن team
-  let teamName =
-    pickAny(p, 'team_name', 'teamName', 'team_label', 'team_title') as string | undefined
-  if (!teamName && p?.team && typeof p.team === 'object') {
-    teamName = pickAny(p.team, 'name', 'label', 'title') as string | undefined
-  }
-
-  // memberName: حاول نقرأ من حقول مباشرة أو من كائن member
-  let memberName =
-    pickAny(p, 'member_name', 'memberName', 'user_name') as string | undefined
-  if (!memberName && p?.member && typeof p.member === 'object') {
-    memberName = pickAny(p.member, 'name', 'full_name') as string | undefined
-  }
-
-  // أرقام الميزانية: جرّب أكبر عدد من المفاتيح الممكنة
-  const amountRaw = pickAny(
-    p,
-    'amount',
-    'amount_total',
-    'budget_total',
-    'total',
-    'team_budget_total'
-  )
-  const spentRaw = pickAny(
-    p,
-    'spent',
-    'spent_amount',
-    'used',
-    'used_amount',
-    'consumed',
-    'consumed_amount'
-  )
-  const remainingRaw = pickAny(
-    p,
-    'remaining',
-    'remaining_amount',
-    'budget_remaining',
-    'remain',
-    'left',
-    'balance',
-    'available',
-    'available_amount',
-    'remaining_egp'
-  )
-  const remainingPctRaw = pickAny(
-    p,
-    'remaining_percent',
-    'remaining_pct',
-    'pct_remaining',
-    'percent_remaining'
-  )
-
-  // حوّل لأرقام
-  const amount = toNum(amountRaw)
-  const spent = toNum(spentRaw)
-  let remaining = toNum(remainingRaw)
-  let remainingPct = toNum(remainingPctRaw)
-
-  // استنتاج المتبقي لو ناقص
-  if (remaining === null && amount !== null && spent !== null) {
-    remaining = Math.max(0, amount - spent)
-  }
-  if (remaining === null && amount !== null && remainingPct !== null) {
-    remaining = Math.max(0, Math.round((remainingPct / 100) * amount))
-  }
-
-  // استنتاج النسبة لو ناقصة
-  if ((remainingPct === null || remainingPct === undefined) && amount !== null && remaining !== null && amount > 0) {
-    remainingPct = Math.round((remaining / amount) * 100)
-  }
-
   return {
-    teamId:         pickAny(p, 'team_id', 'teamId') ?? (typeof p?.team === 'object' ? p.team.id : undefined),
-    teamName,
-    memberId:       pickAny(p, 'member_id', 'memberId', 'user_id') ?? (typeof p?.member === 'object' ? p.member.id : undefined),
-    memberName:     memberName || pickAny(p, 'name'),
+    // فرق
+    teamId:         pickAny(p, 'team_id', 'teamId', 'team_id_top'),
+    teamName:       pickAny(p, 'team_name', 'teamName', 'team', 'team_name_top'),
+
+    // أفراد/أدوار
+    memberId:       pickAny(p, 'member_id', 'memberId', 'user_id'),
+    memberName:     pickAny(p, 'member_name', 'memberName', 'user_name', 'name'),
     guardianName:   pickAny(p, 'guardian_name', 'guardianName'),
     guardianPhone:  pickAny(p, 'guardian_phone', 'guardianPhone'),
     role:           pickAny(p, 'role', 'role_name'),
+
+    // أرض/أدوات
     zoneId:         pickAny(p, 'zone_id', 'field_zone_id'),
     zoneName:       pickAny(p, 'zone_name', 'field_zone_name'),
     materialId:     pickAny(p, 'material_id'),
     materialName:   pickAny(p, 'material_name', 'item_name'),
     qty:            pickAny(p, 'qty', 'quantity'),
+
+    // أوقات
     from:           pickAny(p, 'from', 'starts_at', 'start'),
     to:             pickAny(p, 'to', 'ends_at', 'end'),
     meetingDate:    pickAny(p, 'meeting_date', 'last_meeting_date'),
     mtype:          pickAny(p, 'mtype', 'meeting_type'),
+
+    // ترم
     termLabel:      pickAny(p, 'term_label', 'term_name'),
     termYear:       pickAny(p, 'term_year', 'year'),
 
-    // === ميزانية (بعد التطبيع/الاستنتاج) ===
-    amount,
-    remaining,
-    remainingPct,
+    // ميزانية (أكثر من مفتاح علشان نغطي كل السيناريوهات)
+    amount:         pickAny(p, 'amount', 'amount_total', 'budget_amount', 'budget_total', 'amount_budget_nested', 'amount_total_top'),
+    remaining:      pickAny(p, 'remaining', 'remaining_amount', 'remaining_total', 'remaining_budget_nested', 'remaining_top', 'remaining_amount_top'),
+    spent:          pickAny(p, 'spent', 'spent_total', 'expenses_sum'),
 
+    // متفرقات
     missing:        Array.isArray(p?.missing) ? p.missing : undefined,
     dates: (
       Array.isArray(p?.dates) ? p.dates
@@ -159,15 +102,12 @@ function normalizePayload(p: any) {
       : undefined
     ),
     note:           pickAny(p, 'note', 'message'),
+
     extra:          p
   }
 }
 
-/** احسب نسبة المتبقي (لو قدرت) */
-function computeRemainingPct(np: ReturnType<typeof normalizePayload>): number | null {
-  return (np.remainingPct ?? null) as number | null
-}
-
+/** -------- Visual meta per notification type -------- */
 const typeMeta: Record<string, {
   title: string
   tone: 'info'|'warn'|'danger'
@@ -179,10 +119,17 @@ const typeMeta: Record<string, {
     tone: 'warn',
     icon: '💸',
     makeText: (_, np) => {
-      const pct = computeRemainingPct(np)
-      const pctTxt = (pct !== null ? ` (${pct}%)` : '')
-      return `ميزانية فريق ${np.teamName ?? '—'}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} أقل من 25%. المتبقي: ${egp(np.remaining)} EGP${pctTxt}.`
-    },
+      // حاول تحسب المتبقّي حتى لو الـpayload فيه budget/spent فقط
+      let rem = toNumber(np.remaining)
+      if (rem === null) {
+        const total = toNumber(np.amount)
+        const spent = toNumber(np.spent)
+        if (total !== null && spent !== null) rem = total - spent
+      }
+      const team = np.teamName ?? '—'
+      const term = np.termLabel ? ` (ترم ${np.termLabel})` : ''
+      return `ميزانية فريق ${team}${term} أقل من 25%. المتبقي: ${fmtMoney(rem)}.`
+    }
   },
   budget_depleted: {
     title: 'نفاد الميزانية',
@@ -264,6 +211,7 @@ const typeMeta: Record<string, {
   },
 }
 
+/** مظهر الكارت حسب نوعه */
 function clsTone(tone: 'info'|'warn'|'danger') {
   switch (tone) {
     case 'warn': return 'border-amber-300 bg-amber-50'
@@ -272,74 +220,11 @@ function clsTone(tone: 'info'|'warn'|'danger') {
   }
 }
 
-/** ===== بصمة (Fingerprint) لدمج التكرارات ===== */
-function notifKey(n: Notif): string {
-  const np = normalizePayload(n.payload)
-  const safe = (x: any) => (x === undefined || x === null) ? '' : String(x)
-  switch (n.ntype) {
-    case 'equipier_3_absences': {
-      const dates = Array.isArray(np.dates) ? [...np.dates].sort().join('|') : ''
-      return `equipier_3_absences|${safe(np.memberId)}|${safe(np.teamId)}|${dates}`
-    }
-    case 'field_conflict':
-      return `field_conflict|${safe(np.zoneId)}|${safe(np.from)}|${safe(np.to)}|${safe(np.teamId)}`
-    case 'materials_conflict':
-      return `materials_conflict|${safe(np.materialId)}|${safe(np.from)}|${safe(np.to)}|${safe(np.teamId)}`
-    case 'budget_low':
-      return `budget_low|${safe(np.teamId)}|${safe(np.termYear)}|${safe(np.termLabel)}`
-    case 'budget_depleted':
-      return `budget_depleted|${safe(np.teamId)}|${safe(np.termYear)}|${safe(np.termLabel)}`
-    case 'materials_return_all_ok':
-    case 'materials_return_not_all':
-      return `${n.ntype}|${safe(np.teamId)}|${safe(np.extra?.date)}`
-    case 'event': {
-      const when = safe(np.from || np.extra?.starts_at)
-      return `event|${safe(np.extra?.title)}|${when}|${safe(np.extra?.location)}`
-    }
-    default: {
-      const base = JSON.stringify([
-        safe(np.teamId), safe(np.memberId), safe(np.materialId), safe(np.zoneId),
-        safe(np.mtype), safe(np.termLabel), safe(np.from), safe(np.to),
-        safe(np.amount), safe(np.remaining)
-      ])
-      return `${n.ntype}|${base}`
-    }
-  }
-}
-
-/** دمج التكرارات مع الاحتفاظ بالأحدث */
-function dedupNotifications(list: Notif[]) {
-  const keyToLatest = new Map<string, Notif>()
-  const keyToIds: Record<string, string[]> = {}
-  const idToKey: Record<string, string> = {}
-
-  for (const n of list) {
-    const key = notifKey(n)
-    idToKey[n.id] = key
-    if (!keyToIds[key]) keyToIds[key] = []
-    keyToIds[key].push(n.id)
-
-    const prev = keyToLatest.get(key)
-    if (!prev || new Date(n.created_at).getTime() > new Date(prev.created_at).getTime()) {
-      keyToLatest.set(key, n)
-    }
-  }
-  const merged = Array.from(keyToLatest.values())
-    .sort((a,b)=> new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  return { merged, keyToIds, idToKey }
-}
-
-/** فلتر خاص: budget_low لازم يكون < 25% */
-function passesBudgetLowRule(n: Notif): boolean {
-  if (n.ntype !== 'budget_low') return true
-  const np = normalizePayload(n.payload)
-  const pct = computeRemainingPct(np)
-  if (pct === null) return true // لو معرفناش نحسبها، نعرضه بافتراض السيرفر مظبوط
-  return pct < 25
-}
-
+/** --------- Component --------- */
 export default function Notifications() {
   const toast = useToast()
+  const { user } = useAuth()
+
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<Notif[]>([])
   const [showRead, setShowRead] = useState(false)
@@ -347,10 +232,7 @@ export default function Notifications() {
   const [marking, setMarking] = useState<string | null>(null)
   const [markingAll, setMarkingAll] = useState(false)
 
-  // خرائط لمجموعات التكرار
-  const [keyToIds, setKeyToIds] = useState<Record<string, string[]>>({})
-  const [idToKey, setIdToKey] = useState<Record<string, string>>({})
-
+  // جلب البيانات + إرسال عداد غير المقروء للـSideNav
   useEffect(() => { refresh() }, [showRead])
   async function refresh() {
     setLoading(true)
@@ -359,16 +241,30 @@ export default function Notifications() {
       if (!showRead) q = q.eq('is_read', false)
       const { data, error } = await q
       if (error) throw error
-      const list: Notif[] = (data as any) ?? []
+      const list = (data as any) ?? []
 
-      const { merged, keyToIds: _k2i, idToKey: _i2k } = dedupNotifications(list)
-      const mergedFiltered = merged.filter(passesBudgetLowRule)
+      // ✅ منع التكرارات الشائعة (خصوصًا غياب 3 مرات)
+      const seen = new Set<string>()
+      const deduped: Notif[] = []
+      for (const n of list) {
+        const p = normalizePayload(n.payload)
+        const key = JSON.stringify({
+          t: n.ntype,
+          m: p.memberId || null,
+          team: p.teamId || null,
+          mat: p.materialId || null,
+          zone: p.zoneId || null,
+          from: p.from || null,
+          to: p.to || null,
+          dates: Array.isArray(p.dates) ? p.dates.slice().sort() : null
+        })
+        if (!seen.has(key)) { seen.add(key); deduped.push(n) }
+      }
 
-      setRows(mergedFiltered)
-      setKeyToIds(_k2i)
-      setIdToKey(_i2k)
+      setRows(deduped)
 
-      const unreadCount = mergedFiltered.filter(n => !n.is_read).length
+      // ✅ ابعت عدّاد غير المقروء لسايدنـاف مباشرة
+      const unreadCount = deduped.filter((n: Notif) => !n.is_read).length
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
       toast.error(e.message || 'تعذر تحميل الإشعارات')
@@ -377,11 +273,21 @@ export default function Notifications() {
     }
   }
 
+  // Realtime: أي INSERT/UPDATE على notifications تخص المستخدم → حدّث القائمة
+  useEffect(() => {
+    if (!user?.id) return
+    const ch = supabase
+      .channel(`notif_page_${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => refresh())
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, showRead])
+
   const filtered = useMemo(() => {
-    const base = rows
-    if (!search.trim()) return base
+    if (!search.trim()) return rows
     const s = search.toLowerCase()
-    return base.filter(n => {
+    return rows.filter(n => {
       const meta = typeMeta[n.ntype]
       const np = normalizePayload(n.payload)
       const title = meta?.title || n.ntype.replace(/_/g,' ')
@@ -400,28 +306,17 @@ export default function Notifications() {
   async function markRead(id: string) {
     setMarking(id)
     try {
-      const key = idToKey[id]
-      const ids = key ? (keyToIds[key] || [id]) : [id]
-
-      const { error } = await supabase.rpc('mark_notifications_read', { _ids: ids })
+      const { error } = await supabase.rpc('mark_notifications_read', { _ids: [id] })
       if (error) throw error
 
+      // ✅ حدّث الواجهة فورًا + ابعت العدّاد الجديد
       let newRows: Notif[]
       if (showRead) {
-        const idsSet = new Set(ids)
-        newRows = rows.map(n => idsSet.has(n.id) ? { ...n, is_read: true } : n)
+        newRows = rows.map(n => n.id === id ? { ...n, is_read: true } : n)
       } else {
-        const idsSet = new Set(ids)
-        newRows = rows.filter(n => !idsSet.has(n.id))
+        newRows = rows.filter(n => n.id !== id)
       }
       setRows(newRows)
-
-      if (key) {
-        const k2i = { ...keyToIds }
-        delete k2i[key]
-        setKeyToIds(k2i)
-      }
-
       const unreadCount = newRows.filter(n => !n.is_read).length
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: unreadCount }))
     } catch (e:any) {
@@ -435,12 +330,11 @@ export default function Notifications() {
       const { error } = await supabase.rpc('mark_all_my_notifications_read')
       if (error) throw error
 
+      // ✅ حدّث الواجهة فورًا + ابعت صفر
       if (showRead) setRows(prev => prev.map(n => ({ ...n, is_read: true })))
       else setRows([])
 
       window.dispatchEvent(new CustomEvent('app:notif-unread', { detail: 0 }))
-      setKeyToIds({})
-      setIdToKey({})
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحديث')
     } finally { setMarkingAll(false) }
@@ -490,7 +384,6 @@ export default function Notifications() {
             const tone = meta?.tone || 'info'
             const icon = meta?.icon || '🔔'
             const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
-            const pctLeft = computeRemainingPct(np)
 
             return (
               <div
@@ -550,17 +443,24 @@ export default function Notifications() {
                         </div>
                       )}
 
-                      {/* تفاصيل الميزانية (لو موجودة) */}
-                      {(np.remaining !== null && np.remaining !== undefined) && (
+                      {n.ntype === 'budget_low' && (
                         <div className="detail">
                           <div className="detail-label">المتبقي</div>
-                          <div><b>{egp(np.remaining)} EGP{pctLeft !== null ? ` (${pctLeft}%)` : ''}</b></div>
-                        </div>
-                      )}
-                      {(np.amount !== null && np.amount !== undefined) && (
-                        <div className="detail">
-                          <div className="detail-label">الميزانية الكلية</div>
-                          <div><b>{egp(np.amount)} EGP</b></div>
+                          {/* نحاول نعرض المتبقّي حتى لو كان لازم نحسبه */}
+                          <div>
+                            <b>{
+                              (() => {
+                                let rem = toNumber(normalizePayload(n.payload).remaining)
+                                if (rem === null) {
+                                  const np2 = normalizePayload(n.payload)
+                                  const total = toNumber(np2.amount)
+                                  const spent = toNumber(np2.spent)
+                                  if (total !== null && spent !== null) rem = total - spent
+                                }
+                                return fmtMoney(rem)
+                              })()
+                            }</b>
+                          </div>
                         </div>
                       )}
                     </div>
