@@ -20,6 +20,12 @@ const pickAny = (obj: any, ...keys: string[]) => {
   }
   return undefined
 }
+const toNum = (v: any): number | null => {
+  const n = typeof v === 'string' ? Number(v.replace(/[^\d.-]/g,'')) : Number(v)
+  return Number.isFinite(n) ? n : null
+}
+const egp = (v?: number | null) =>
+  (v === null || v === undefined) ? '—' : v.toLocaleString('en-US')
 
 function fmtDate(d?: string) {
   if (!d) return '—'
@@ -49,11 +55,82 @@ function timeAgo(d: string) {
 
 /** نطبّع الـpayload */
 function normalizePayload(p: any) {
+  // teamName: حاول نقرأ من حقول مباشرة أو من كائن team
+  let teamName =
+    pickAny(p, 'team_name', 'teamName', 'team_label', 'team_title') as string | undefined
+  if (!teamName && p?.team && typeof p.team === 'object') {
+    teamName = pickAny(p.team, 'name', 'label', 'title') as string | undefined
+  }
+
+  // memberName: حاول نقرأ من حقول مباشرة أو من كائن member
+  let memberName =
+    pickAny(p, 'member_name', 'memberName', 'user_name') as string | undefined
+  if (!memberName && p?.member && typeof p.member === 'object') {
+    memberName = pickAny(p.member, 'name', 'full_name') as string | undefined
+  }
+
+  // أرقام الميزانية: جرّب أكبر عدد من المفاتيح الممكنة
+  const amountRaw = pickAny(
+    p,
+    'amount',
+    'amount_total',
+    'budget_total',
+    'total',
+    'team_budget_total'
+  )
+  const spentRaw = pickAny(
+    p,
+    'spent',
+    'spent_amount',
+    'used',
+    'used_amount',
+    'consumed',
+    'consumed_amount'
+  )
+  const remainingRaw = pickAny(
+    p,
+    'remaining',
+    'remaining_amount',
+    'budget_remaining',
+    'remain',
+    'left',
+    'balance',
+    'available',
+    'available_amount',
+    'remaining_egp'
+  )
+  const remainingPctRaw = pickAny(
+    p,
+    'remaining_percent',
+    'remaining_pct',
+    'pct_remaining',
+    'percent_remaining'
+  )
+
+  // حوّل لأرقام
+  const amount = toNum(amountRaw)
+  const spent = toNum(spentRaw)
+  let remaining = toNum(remainingRaw)
+  let remainingPct = toNum(remainingPctRaw)
+
+  // استنتاج المتبقي لو ناقص
+  if (remaining === null && amount !== null && spent !== null) {
+    remaining = Math.max(0, amount - spent)
+  }
+  if (remaining === null && amount !== null && remainingPct !== null) {
+    remaining = Math.max(0, Math.round((remainingPct / 100) * amount))
+  }
+
+  // استنتاج النسبة لو ناقصة
+  if ((remainingPct === null || remainingPct === undefined) && amount !== null && remaining !== null && amount > 0) {
+    remainingPct = Math.round((remaining / amount) * 100)
+  }
+
   return {
-    teamId:         pickAny(p, 'team_id', 'teamId'),
-    teamName:       pickAny(p, 'team_name', 'teamName', 'team'),
-    memberId:       pickAny(p, 'member_id', 'memberId', 'user_id'),
-    memberName:     pickAny(p, 'member_name', 'memberName', 'user_name', 'name'),
+    teamId:         pickAny(p, 'team_id', 'teamId') ?? (typeof p?.team === 'object' ? p.team.id : undefined),
+    teamName,
+    memberId:       pickAny(p, 'member_id', 'memberId', 'user_id') ?? (typeof p?.member === 'object' ? p.member.id : undefined),
+    memberName:     memberName || pickAny(p, 'name'),
     guardianName:   pickAny(p, 'guardian_name', 'guardianName'),
     guardianPhone:  pickAny(p, 'guardian_phone', 'guardianPhone'),
     role:           pickAny(p, 'role', 'role_name'),
@@ -69,10 +146,10 @@ function normalizePayload(p: any) {
     termLabel:      pickAny(p, 'term_label', 'term_name'),
     termYear:       pickAny(p, 'term_year', 'year'),
 
-    // === ميزانية ===
-    amount:         pickAny(p, 'amount', 'amount_total', 'budget_total', 'total'),
-    remaining:      pickAny(p, 'remaining', 'remaining_amount', 'budget_remaining'),
-    remainingPct:   pickAny(p, 'remaining_percent', 'remaining_pct', 'pct_remaining'),
+    // === ميزانية (بعد التطبيع/الاستنتاج) ===
+    amount,
+    remaining,
+    remainingPct,
 
     missing:        Array.isArray(p?.missing) ? p.missing : undefined,
     dates: (
@@ -88,16 +165,7 @@ function normalizePayload(p: any) {
 
 /** احسب نسبة المتبقي (لو قدرت) */
 function computeRemainingPct(np: ReturnType<typeof normalizePayload>): number | null {
-  const direct = Number(np.remainingPct)
-  if (!Number.isNaN(direct) && direct >= 0) {
-    return Math.round(direct)
-  }
-  const remaining = Number(np.remaining)
-  const total = Number(np.amount)
-  if (!Number.isNaN(remaining) && !Number.isNaN(total) && total > 0) {
-    return Math.round((remaining / total) * 100)
-  }
-  return null
+  return (np.remainingPct ?? null) as number | null
 }
 
 const typeMeta: Record<string, {
@@ -113,7 +181,7 @@ const typeMeta: Record<string, {
     makeText: (_, np) => {
       const pct = computeRemainingPct(np)
       const pctTxt = (pct !== null ? ` (${pct}%)` : '')
-      return `ميزانية فريق ${np.teamName ?? '—'}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} أقل من 25%. المتبقي: ${np.remaining ?? '—'} EGP${pctTxt}.`
+      return `ميزانية فريق ${np.teamName ?? '—'}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} أقل من 25%. المتبقي: ${egp(np.remaining)} EGP${pctTxt}.`
     },
   },
   budget_depleted: {
@@ -266,8 +334,7 @@ function passesBudgetLowRule(n: Notif): boolean {
   if (n.ntype !== 'budget_low') return true
   const np = normalizePayload(n.payload)
   const pct = computeRemainingPct(np)
-  // لو عرفنا النسبة: لازم تكون < 25; لو مش عارفينها، نعرض الإشعار كما هو (يفترض السيرفر أرسله صح)
-  if (pct === null) return true
+  if (pct === null) return true // لو معرفناش نحسبها، نعرضه بافتراض السيرفر مظبوط
   return pct < 25
 }
 
@@ -294,10 +361,7 @@ export default function Notifications() {
       if (error) throw error
       const list: Notif[] = (data as any) ?? []
 
-      // دمج تكرارات
       const { merged, keyToIds: _k2i, idToKey: _i2k } = dedupNotifications(list)
-
-      // فلتر budget_low < 25%
       const mergedFiltered = merged.filter(passesBudgetLowRule)
 
       setRows(mergedFiltered)
@@ -426,8 +490,6 @@ export default function Notifications() {
             const tone = meta?.tone || 'info'
             const icon = meta?.icon || '🔔'
             const datesArr: string[] = Array.isArray(n.payload?.dates) ? n.payload.dates : []
-
-            // نسبة المتبقي (لعرضها كـتفصيلة إضافية لو متوفرة)
             const pctLeft = computeRemainingPct(np)
 
             return (
@@ -489,16 +551,16 @@ export default function Notifications() {
                       )}
 
                       {/* تفاصيل الميزانية (لو موجودة) */}
-                      {np.remaining !== undefined && (
+                      {(np.remaining !== null && np.remaining !== undefined) && (
                         <div className="detail">
                           <div className="detail-label">المتبقي</div>
-                          <div><b>{np.remaining} EGP{pctLeft !== null ? ` (${pctLeft}%)` : ''}</b></div>
+                          <div><b>{egp(np.remaining)} EGP{pctLeft !== null ? ` (${pctLeft}%)` : ''}</b></div>
                         </div>
                       )}
-                      {np.amount !== undefined && (
+                      {(np.amount !== null && np.amount !== undefined) && (
                         <div className="detail">
                           <div className="detail-label">الميزانية الكلية</div>
-                          <div><b>{np.amount} EGP</b></div>
+                          <div><b>{egp(np.amount)} EGP</b></div>
                         </div>
                       )}
                     </div>
