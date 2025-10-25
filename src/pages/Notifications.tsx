@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
 import { useToast } from '../components/ui/Toaster'
-import { useAuth } from '../components/AuthProvider'
 
 type Notif = {
   id: string
@@ -20,15 +19,6 @@ const pickAny = (obj: any, ...keys: string[]) => {
     if (v !== undefined && v !== null && v !== '') return v
   }
   return undefined
-}
-const toNumber = (x: any): number | null => {
-  if (x === null || x === undefined || x === '') return null
-  const n = Number(x)
-  return Number.isFinite(n) ? n : null
-}
-const fmtMoney = (n: number | null | undefined) => {
-  if (n === null || n === undefined) return '—'
-  try { return `${Math.round(n).toLocaleString()} EGP` } catch { return `${n} EGP` }
 }
 
 function fmtDate(d?: string) {
@@ -57,54 +47,61 @@ function timeAgo(d: string) {
   const days = Math.round(h/24); return `${days} يوم`
 }
 
-/** نطبّع الـpayload لمفاتيح موحّدة */
+function toNum(x: any): number | null {
+  if (x === null || x === undefined || x === '') return null
+  const n = Number(x)
+  return Number.isFinite(n) ? n : null
+}
+function money(x: number | null | undefined) {
+  if (x === null || x === undefined) return '—'
+  return `${x}` // لو عايز تنسيق محلي: new Intl.NumberFormat('ar-EG').format(x)
+}
+
+/** نطبّع الـpayload لمفاتيح موحّدة + نحتفظ بالـextra كما هو */
 function normalizePayload(p: any) {
   return {
-    // فرق
-    teamId:         pickAny(p, 'team_id', 'teamId', 'team_id_top'),
-    teamName:       pickAny(p, 'team_name', 'teamName', 'team', 'team_name_top'),
-
-    // أفراد/أدوار
+    teamId:         pickAny(p, 'team_id', 'teamId'),
+    teamName:       pickAny(p, 'team_name', 'teamName', 'team'),
     memberId:       pickAny(p, 'member_id', 'memberId', 'user_id'),
     memberName:     pickAny(p, 'member_name', 'memberName', 'user_name', 'name'),
     guardianName:   pickAny(p, 'guardian_name', 'guardianName'),
     guardianPhone:  pickAny(p, 'guardian_phone', 'guardianPhone'),
     role:           pickAny(p, 'role', 'role_name'),
-
-    // أرض/أدوات
     zoneId:         pickAny(p, 'zone_id', 'field_zone_id'),
     zoneName:       pickAny(p, 'zone_name', 'field_zone_name'),
     materialId:     pickAny(p, 'material_id'),
     materialName:   pickAny(p, 'material_name', 'item_name'),
     qty:            pickAny(p, 'qty', 'quantity'),
-
-    // أوقات
     from:           pickAny(p, 'from', 'starts_at', 'start'),
     to:             pickAny(p, 'to', 'ends_at', 'end'),
     meetingDate:    pickAny(p, 'meeting_date', 'last_meeting_date'),
     mtype:          pickAny(p, 'mtype', 'meeting_type'),
-
-    // ترم
     termLabel:      pickAny(p, 'term_label', 'term_name'),
     termYear:       pickAny(p, 'term_year', 'year'),
+    termId:         pickAny(p, 'term_id', 'termId'),
 
-    // ميزانية (أكثر من مفتاح علشان نغطي كل السيناريوهات)
-    amount:         pickAny(p, 'amount', 'amount_total', 'budget_amount', 'budget_total', 'amount_budget_nested', 'amount_total_top'),
-    remaining:      pickAny(p, 'remaining', 'remaining_amount', 'remaining_total', 'remaining_budget_nested', 'remaining_top', 'remaining_amount_top'),
-    spent:          pickAny(p, 'spent', 'spent_total', 'expenses_sum'),
+    // حقول مالية محتملة من السيرفر
+    amountTotal:    pickAny(p, 'amount_total', 'budget_Amount', 'budget_total'),
+    spentTotal:     pickAny(p, 'spent', 'expenses_sum', 'spent_total'),
+    remaining:      pickAny(p, 'remaining', 'remaining_amount', 'remaing_total'),
 
-    // متفرقات
-    missing:        Array.isArray(p?.missing) ? p.missing : undefined,
-    dates: (
-      Array.isArray(p?.dates) ? p.dates
-      : Array.isArray(p?.absence_dates) ? p.absence_dates
-      : Array.isArray(p?.last_three_dates) ? p.last_three_dates
-      : undefined
-    ),
     note:           pickAny(p, 'note', 'message'),
-
     extra:          p
   }
+}
+
+/** اشتقاق remaining إذا مش موجود: remaining || (amount_total - spent) */
+function deriveRemaining(np: ReturnType<typeof normalizePayload>): number | null {
+  const direct = toNum(np.remaining)
+  if (direct !== null) return direct
+
+  const amount = toNum(np.amountTotal)
+    ?? toNum(pickAny(np.extra, 'amount_total', 'budget_Amount', 'budget_total'))
+  const spent  = toNum(np.spentTotal)
+    ?? toNum(pickAny(np.extra, 'spent', 'expenses_sum', 'spent_total'))
+
+  if (amount !== null && spent !== null) return amount - spent
+  return null
 }
 
 /** -------- Visual meta per notification type -------- */
@@ -119,31 +116,26 @@ const typeMeta: Record<string, {
     tone: 'warn',
     icon: '💸',
     makeText: (_, np) => {
-      // حاول تحسب المتبقّي حتى لو الـpayload فيه budget/spent فقط
-      let rem = toNumber(np.remaining)
-      if (rem === null) {
-        const total = toNumber(np.amount)
-        const spent = toNumber(np.spent)
-        if (total !== null && spent !== null) rem = total - spent
-      }
       const team = np.teamName ?? '—'
-      const term = np.termLabel ? ` (ترم ${np.termLabel})` : ''
-      return `ميزانية فريق ${team}${term} أقل من 25%. المتبقي: ${fmtMoney(rem)}.`
-    }
+      const rem  = deriveRemaining(np)
+      return `ميزانية فريق ${team} أقل من 25%. المتبقي: ${money(rem)} EGP.`
+    },
   },
   budget_depleted: {
     title: 'نفاد الميزانية',
     tone: 'danger',
     icon: '⛔',
-    makeText: (_, np) =>
-      `ميزانية فريق ${np.teamName ?? '—'}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} نفدت.`,
+    makeText: (_, np) => {
+      const team = np.teamName ?? '—'
+      return `ميزانية فريق ${team}${np.termLabel ? ` (ترم ${np.termLabel})` : ''} نفدت.`
+    },
   },
   eval_due: {
     title: 'تقييمات مطلوبة',
     tone: 'warn',
     icon: '📝',
     makeText: (_, np) =>
-      `باقي أسبوعين لانتهاء الترم${np.termLabel ? ` (${np.termLabel})` : ''}. ${np.missing?.length ? `لم تُقيَّم: ${np.missing.join('، ')}` : ''}`,
+      `باقي أسبوعين لانتهاء الترم${np.termLabel ? ` (${np.termLabel})` : ''}. ${Array.isArray(np.extra?.missing) && np.extra.missing.length ? `لم تُقيَّم: ${np.extra.missing.join('، ')}` : ''}`,
   },
   materials_conflict: {
     title: 'تعارض حجز أدوات',
@@ -190,7 +182,7 @@ const typeMeta: Record<string, {
     makeText: (_, np) => {
       const team = np.teamName || '—'
       const date = np.extra?.date || np.from || ''
-      const total = np.extra?.total ?? np.amount ?? ''
+      const total = np.extra?.total ?? np.amountTotal ?? ''
       return `الفريق ${team} سلّم العهدة كاملة${date ? ` بتاريخ ${date}` : ''}${total ? ` (عدد البنود: ${total})` : ''}.`
     }
   },
@@ -211,7 +203,6 @@ const typeMeta: Record<string, {
   },
 }
 
-/** مظهر الكارت حسب نوعه */
 function clsTone(tone: 'info'|'warn'|'danger') {
   switch (tone) {
     case 'warn': return 'border-amber-300 bg-amber-50'
@@ -220,11 +211,8 @@ function clsTone(tone: 'info'|'warn'|'danger') {
   }
 }
 
-/** --------- Component --------- */
 export default function Notifications() {
   const toast = useToast()
-  const { user } = useAuth()
-
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<Notif[]>([])
   const [showRead, setShowRead] = useState(false)
@@ -232,7 +220,6 @@ export default function Notifications() {
   const [marking, setMarking] = useState<string | null>(null)
   const [markingAll, setMarkingAll] = useState(false)
 
-  // جلب البيانات + إرسال عداد غير المقروء للـSideNav
   useEffect(() => { refresh() }, [showRead])
   async function refresh() {
     setLoading(true)
@@ -241,24 +228,20 @@ export default function Notifications() {
       if (!showRead) q = q.eq('is_read', false)
       const { data, error } = await q
       if (error) throw error
-      const list = (data as any) ?? []
+      const list: Notif[] = (data as any) ?? []
 
-      // ✅ منع التكرارات الشائعة (خصوصًا غياب 3 مرات)
+      // ✅ فلترة الدوبليكيت على مستوى الواجهة (نفس النوع + نفس الفريق + نفس النص)
       const seen = new Set<string>()
       const deduped: Notif[] = []
       for (const n of list) {
-        const p = normalizePayload(n.payload)
-        const key = JSON.stringify({
-          t: n.ntype,
-          m: p.memberId || null,
-          team: p.teamId || null,
-          mat: p.materialId || null,
-          zone: p.zoneId || null,
-          from: p.from || null,
-          to: p.to || null,
-          dates: Array.isArray(p.dates) ? p.dates.slice().sort() : null
-        })
-        if (!seen.has(key)) { seen.add(key); deduped.push(n) }
+        const np = normalizePayload(n.payload)
+        const meta = typeMeta[n.ntype]
+        const text = meta?.makeText(n, np) || n.ntype
+        const key = `${n.ntype}|${np.teamId ?? ''}|${np.termId ?? ''}|${text}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          deduped.push(n)
+        }
       }
 
       setRows(deduped)
@@ -272,17 +255,6 @@ export default function Notifications() {
       setLoading(false)
     }
   }
-
-  // Realtime: أي INSERT/UPDATE على notifications تخص المستخدم → حدّث القائمة
-  useEffect(() => {
-    if (!user?.id) return
-    const ch = supabase
-      .channel(`notif_page_${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => refresh())
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, showRead])
 
   const filtered = useMemo(() => {
     if (!search.trim()) return rows
@@ -443,24 +415,10 @@ export default function Notifications() {
                         </div>
                       )}
 
-                      {n.ntype === 'budget_low' && (
+                      {np.mtype && (
                         <div className="detail">
-                          <div className="detail-label">المتبقي</div>
-                          {/* نحاول نعرض المتبقّي حتى لو كان لازم نحسبه */}
-                          <div>
-                            <b>{
-                              (() => {
-                                let rem = toNumber(normalizePayload(n.payload).remaining)
-                                if (rem === null) {
-                                  const np2 = normalizePayload(n.payload)
-                                  const total = toNumber(np2.amount)
-                                  const spent = toNumber(np2.spent)
-                                  if (total !== null && spent !== null) rem = total - spent
-                                }
-                                return fmtMoney(rem)
-                              })()
-                            }</b>
-                          </div>
+                          <div className="detail-label">نوع اليوم</div>
+                          <div><b>{np.mtype === 'preparation' ? 'تحضير' : np.mtype === 'meeting' ? 'اجتماع' : np.mtype}</b></div>
                         </div>
                       )}
                     </div>
