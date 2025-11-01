@@ -152,7 +152,7 @@ export default function SideNav({ onNavigate }: Props) {
         pushUnique(res, '/app/LegionAttendance', 'غياب فريقي')
         pushUnique(res, '/app/FieldReservationsTeam', 'حجز الارض')
         pushUnique(res, '/app/TeamFinance', 'ميزانية الفريق')
-        pushUnique(res, '/app/MaterialTeamReservation', 'الأدوات')
+                      pushUnique(res, '/app/MaterialTeamReservation', 'حجز الأدوات' )
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
         pushUnique(res, '/app/ChefsEvaluationOverview', 'التقييم النهائى ')
       }
@@ -166,6 +166,8 @@ export default function SideNav({ onNavigate }: Props) {
       }
       if (has('responsable_materials')) {
               pushUnique(res, '/app/FieldReservationsTeam', 'حجز الارض')
+                      pushUnique(res, '/app/MaterialTeamReservation', 'حجز الأدوات' )
+
       }
 
       // if (isAdmin || has('responsable_finance')) {
