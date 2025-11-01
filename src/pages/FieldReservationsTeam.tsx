@@ -10,6 +10,24 @@ import FieldMaps from '../components/FieldMaps'
 type Team = { id: string; name: string }
 type Zone = { id: string; name: string }
 
+// ===== Helpers (تثبيت المنطقة الزمنية) =====
+// نحول "YYYY-MM-DDTHH:MM" (محلي) إلى Date محلية ثم ISO UTC
+function localDateTimeToISOString(dtLocal: string): string {
+  // حراسة
+  if (!dtLocal || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dtLocal)) {
+    // fallback: لو جت قيمة مختلفة، خلّيها يحاول يحوّلها
+    const d = new Date(dtLocal)
+    return isNaN(+d) ? new Date().toISOString() : d.toISOString()
+  }
+
+  const [datePart, timePart] = dtLocal.split('T')
+  const [y, m, d] = datePart.split('-').map(Number)
+  const [hh, mm] = timePart.split(':').map(Number)
+  // Date(...) هنا محلي، toISOString هيحوّل لـ UTC بشكل صحيح
+  const local = new Date(y, m - 1, d, hh, mm, 0, 0)
+  return local.toISOString()
+}
+
 export default function FieldReservationsTeam() {
   const toast = useToast()
   const gate = useRoleGate()
@@ -77,7 +95,16 @@ export default function FieldReservationsTeam() {
     if (!zoneId) return toast.error('اختر القطاع')
     if (!meetingDate) return toast.error('اختر تاريخ الاجتماع')
     if (!startsAt || !endsAt) return toast.error('أدخل وقتي البداية والنهاية')
-    if (new Date(startsAt) >= new Date(endsAt)) return toast.error('وقت البداية يجب أن يسبق النهاية')
+
+    // تأكد إن البداية قبل النهاية
+    const startsLocal = new Date(startsAt.replace(' ', 'T'))
+    const endsLocal   = new Date(endsAt.replace(' ', 'T'))
+    if (isNaN(+startsLocal) || isNaN(+endsLocal)) return toast.error('تنسيق الوقت غير صالح')
+    if (startsLocal >= endsLocal) return toast.error('وقت البداية يجب أن يسبق النهاية')
+
+    // ✅ التحويل إلى ISO UTC قبل الحفظ (علشان نتجنب الانزياح)
+    const startsISO = localDateTimeToISOString(startsAt)
+    const endsISO   = localDateTimeToISOString(endsAt)
 
     setSaving(true)
     try {
@@ -88,7 +115,11 @@ export default function FieldReservationsTeam() {
       if (me) throw me
 
       const { error: ie } = await supabase.from('field_reservations').insert({
-        team_id: teamId, field_zone_id: zoneId, starts_at: startsAt, ends_at: endsAt, meeting_id: mrow?.id || null
+        team_id: teamId,
+        field_zone_id: zoneId,
+        starts_at: startsISO, // <-- هنا
+        ends_at: endsISO,     // <-- وهنا
+        meeting_id: mrow?.id || null
       })
       if (ie) {
         const msg = String(ie.message || '')
@@ -158,11 +189,21 @@ export default function FieldReservationsTeam() {
           </div>
           <div>
             <label className="text-sm">من</label>
-            <input type="datetime-local" className="border rounded-xl p-2 w-full" value={startsAt} onChange={e=>setStartsAt(e.target.value)} />
+            <input
+              type="datetime-local"
+              className="border rounded-xl p-2 w-full"
+              value={startsAt}
+              onChange={e=>setStartsAt(e.target.value)}
+            />
           </div>
           <div>
             <label className="text-sm">إلى</label>
-            <input type="datetime-local" className="border rounded-xl p-2 w-full" value={endsAt} onChange={e=>setEndsAt(e.target.value)} />
+            <input
+              type="datetime-local"
+              className="border rounded-xl p-2 w-full"
+              value={endsAt}
+              onChange={e=>setEndsAt(e.target.value)}
+            />
           </div>
           <div className="md:col-span-5 text-end">
             <LoadingButton loading={saving} onClick={save}>حجز القطاع</LoadingButton>
@@ -186,6 +227,7 @@ export default function FieldReservationsTeam() {
               {rows.map(r => (
                 <tr key={r.id} className="border-t">
                   <td className="p-2">{r.field_zones?.name || '—'}</td>
+                  {/* Postgres بيخزن UTC (timestamptz) — هنا بنعرض محلي */}
                   <td className="p-2">{new Date(r.starts_at).toLocaleString()}</td>
                   <td className="p-2">{new Date(r.ends_at).toLocaleString()}</td>
                   <td className="p-2 text-center">
