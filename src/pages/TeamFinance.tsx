@@ -8,8 +8,9 @@ import { useAuth } from '../components/AuthProvider'
 import ExcelJS from 'exceljs' // تصدير XLSX مع تنسيقات
 
 type Team = { id: string; name: string }
-type Term = { id: string; name: string; year: number }
+type Term = { id: string; name: string; year: number; start_date?: string | null; end_date?: string | null }
 type Expense = { id: string; expense_date: string; item_name: string; qty: number; unit_price: number; total: number }
+type TermDateRow = { id: string; meeting_date: string }
 
 export default function TeamFinance() {
   const toast = useToast()
@@ -24,13 +25,18 @@ export default function TeamFinance() {
   const [teamId, setTeamId] = useState<string>('')
   const [termId, setTermId] = useState<string>('')
 
+  // ✅ تواريخ الترم من جدول term_meeting_dates
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
+  const hasTermDates = termDates.length > 0
+
   const [budget, setBudget] = useState<number | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [savingExp, setSavingExp] = useState(false)
 
   // Expense form
-  const [exDate, setExDate] = useState<string>('')
+  const [exDate, setExDate] = useState<string>('')                // التاريخ النهائي اللي بنحفظه
+  const [useCustomDate, setUseCustomDate] = useState<boolean>(false) // هل المستخدم مختار "تاريخ آخر"؟
   const [exName, setExName] = useState<string>('')
   const [exQty, setExQty] = useState<number | ''>('')
   const [exUnit, setExUnit] = useState<number | ''>('')
@@ -79,12 +85,30 @@ export default function TeamFinance() {
   }
   /* ==================================================== */
 
+  // ===== Helpers: term range + dates =====
+  const termMeta = useMemo(() => terms.find(t => t.id === termId) || null, [terms, termId])
+  const termMin = termMeta?.start_date || ''
+  const termMax = termMeta?.end_date || ''
+
+  const clampToTerm = (d: string) => {
+    if (!d) return d
+    if (!termMin && !termMax) return d
+    const asDate = new Date(d)
+    if (termMin && asDate < new Date(termMin)) return termMin
+    if (termMax && asDate > new Date(termMax)) return termMax
+    return d
+  }
+  const fmtDate = (dt: Date) => {
+    const pad = (n:number)=>String(n).padStart(2,'0')
+    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`
+  }
+
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
     try {
       const { data: tm, error: te } = await supabase
-        .from('terms').select('id,name,year')
+        .from('terms').select('id,name,year,start_date,end_date')
         .order('year', { ascending: false })
         .order('name', { ascending: true })
       if (te) throw te
@@ -114,12 +138,41 @@ export default function TeamFinance() {
         setExportTeamId(myTeamId)
       }
 
-      const today = new Date(); const pad = (n:number)=>String(n).padStart(2,'0')
-      setExDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
+      // تاريخ اليوم (سنضبطه لاحقًا مع الترم/التواريخ)
+      const today = new Date()
+      setExDate(fmtDate(today))
     } catch (e:any) {
       toast.error(e.message || 'تعذر تحميل البيانات')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // حمّل تواريخ الترم المختار + اضبط exDate
+  useEffect(() => { if (termId) loadTermDates(termId) }, [termId])
+  async function loadTermDates(tid: string) {
+    try {
+      const { data, error } = await supabase
+        .from('term_meeting_dates')
+        .select('id, meeting_date')
+        .eq('term_id', tid)
+        .order('meeting_date', { ascending: true })
+      if (error) throw error
+      const list = (data as any as TermDateRow[]) ?? []
+      setTermDates(list)
+
+      if (list.length > 0) {
+        // افتراضيًا: أول تاريخ في الترم + الغي "تاريخ آخر"
+        setUseCustomDate(false)
+        setExDate(list[0].meeting_date)
+      } else {
+        // مفيش تواريخ — خلي التاريخ داخل نطاق الترم (لو محدد)
+        setUseCustomDate(true)
+        if (termMeta?.start_date) setExDate(termMeta.start_date)
+        else setExDate(prev => clampToTerm(prev) || prev)
+      }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل تواريخ الترم')
     }
   }
 
@@ -157,6 +210,18 @@ export default function TeamFinance() {
     return 'ok'
   }, [budget, remaining, spent])
 
+  // ====== تاريخ المصروف: Select من تواريخ الترم أو input داخل نطاق الترم ======
+  function onSelectDateChange(v: string) {
+    if (v === '__custom__') {
+      setUseCustomDate(true)
+      // عند التحويل لـ custom لو exDate خارج النطاق حنقربه للحدود
+      setExDate(prev => clampToTerm(prev) || prev)
+    } else {
+      setUseCustomDate(false)
+      setExDate(v)
+    }
+  }
+
   async function addExpense() {
     if (!teamId || !termId) return toast.error('اختر الفريق والترم')
     if (!gate.canWriteExpense(teamId)) { toast.error('ليست لديك صلاحية إضافة مصروف'); return }
@@ -164,6 +229,13 @@ export default function TeamFinance() {
     if (!isFinite(q) || q <= 0) return toast.error('العدد غير صالح')
     if (!isFinite(u) || u < 0) return toast.error('سعر القطعة غير صالح')
     if (!exName.trim()) return toast.error('ادخل اسم المنتج')
+    if (!exDate) return toast.error('اختر التاريخ')
+
+    // ✅ تأكيد أن التاريخ داخل نطاق الترم (لو الحدود متاحة)
+    const clamped = clampToTerm(exDate)
+    if ((termMin || termMax) && clamped !== exDate) {
+      return toast.error('التاريخ خارج نطاق الترم المحدد')
+    }
 
     setSavingExp(true)
     try {
@@ -231,11 +303,10 @@ export default function TeamFinance() {
     if (!d) return ''
     const parts = String(d).slice(0,10).split('-').map(Number)
     if (parts.length === 3 && !parts.some(isNaN)) return new Date(parts[0], parts[1]-1, parts[2])
-    return d
+    return d as any
   }
 
   function sanitizeSheetName(name: string) {
-    // استبدال الأحرف غير المسموحة وقصّ الاسم لـ 31 حرفاً
     const cleaned = name.replace(/[:\\/?*\[\]]/g, ' ').trim()
     return cleaned.length > 31 ? cleaned.slice(0, 29) + '…' : cleaned
   }
@@ -299,7 +370,6 @@ export default function TeamFinance() {
         expensesMap.set(k, arr)
       })
 
-      // حدد الترمات التي سننشئ لها Sheets
       let termIdsSet = new Set<string>()
       if (filters.termIds?.length) {
         filters.termIds.forEach(id => termIdsSet.add(id))
@@ -311,12 +381,10 @@ export default function TeamFinance() {
       }
       if (termIdsSet.size === 0) termsArr.forEach(t => termIdsSet.add(t.id))
 
-      // Workbook
       const wb = new ExcelJS.Workbook()
       const usedNames = new Set<string>()
 
-      // أنماط عامة
-      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF59D' } } // أصفر فاتح
+      const headerFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF59D' } }
       const thinBorder: ExcelJS.Borders = {
         top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
@@ -324,12 +392,10 @@ export default function TeamFinance() {
         right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         diagonal: {},
       }
-      const teamFills = ['FFF8F9FA', 'FFF3F4F6'] // تظليل متناوب لكل فريق
+      const teamFills = ['FFF8F9FA', 'FFF3F4F6']
 
       function addHeader(ws: ExcelJS.Worksheet) {
-        // Freeze header
         ws.views = [{ state: 'frozen', ySplit: 1 }]
-        // Define columns (بدون Year/Term)
         ws.columns = [
           { key: 'team', width: 24 },
           { key: 'budget', width: 14, style: { numFmt: '#,##0.00' } },
@@ -361,13 +427,12 @@ export default function TeamFinance() {
         return r
       }
 
-      // لكل ترم: Sheet مستقل
       const termIds = Array.from(termIdsSet)
       termIds.sort((a,b) => {
         const ta = termsMap.get(a), tb = termsMap.get(b)
         if (!ta || !tb) return 0
         if (ta.year !== tb.year) return ta.year - tb.year
-        return ta.name.localeCompare(tb.name, 'ar')
+        return (ta.name || '').localeCompare(tb.name || '', 'ar')
       })
 
       for (const rId of termIds) {
@@ -378,7 +443,6 @@ export default function TeamFinance() {
         const ws = wb.addWorksheet(sheetName)
         addHeader(ws)
 
-        // استخرج كل الفرق التي لها ميزانية/مصروفات في هذا الترم
         const teamIdsSet = new Set<string>()
         budgets.filter((b:any)=> b.term_id === rId).forEach(b => teamIdsSet.add(b.team_id))
         exps.filter((e:any)=> e.term_id === rId).forEach(e => teamIdsSet.add(e.team_id))
@@ -401,7 +465,6 @@ export default function TeamFinance() {
           const fill = teamFills[teamAlt % teamFills.length]
           teamAlt++
 
-          // SUMMARY row — Team يظهر هنا
           addDataRow(ws, [
             teamName,
             budgetVal,
@@ -410,7 +473,6 @@ export default function TeamFinance() {
             '', '', '', '', ''
           ], fill)
 
-          // LINE rows — Team عمود فاضي
           for (const l of lines) {
             const d = parseDate(l.expense_date)
             const row = addDataRow(ws, [
@@ -422,7 +484,6 @@ export default function TeamFinance() {
               Number(l.unit_price||0),
               Number(l.total|| (Number(l.qty||0)*Number(l.unit_price||0)))
             ], fill)
-            // تنسيقات أرقام/تاريخ
             const cExpDate = row.getCell(5)
             if (d instanceof Date) cExpDate.numFmt = 'yyyy-mm-dd'
             row.getCell(7).numFmt = '#,##0'
@@ -430,7 +491,6 @@ export default function TeamFinance() {
             row.getCell(9).numFmt = '#,##0.00'
           }
 
-          // سطر فاصل فاضي بين كل فريق والتاني
           ws.addRow(['','','','','','','','',''])
         }
 
@@ -439,7 +499,6 @@ export default function TeamFinance() {
         }
       }
 
-      // تنزيل الملف
       const safe = filename.toLowerCase().endsWith('.xlsx') ? filename : filename.replace(/\.csv$/i,'') + '.xlsx'
       const buf = await wb.xlsx.writeBuffer()
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -481,6 +540,11 @@ export default function TeamFinance() {
           <select className="border rounded-xl p-2 w-full min-w-0 cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
             {terms.map(t => <option key={t.id} value={t.id}>{t.year} — {t.name}</option>)}
           </select>
+          {termMeta?.start_date && termMeta?.end_date && (
+            <div className="text-[11px] text-gray-500 mt-1">
+              نطاق الترم: {termMeta.start_date} → {termMeta.end_date}
+            </div>
+          )}
         </div>
       </div>
 
@@ -506,16 +570,49 @@ export default function TeamFinance() {
       {gate.canWriteExpense(teamId) && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">إضافة مصروف</h2>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
-            <div>
+            <div className="md:col-span-2">
               <label className="text-sm">التاريخ</label>
-              <input
-                type="date"
-                className="border rounded-xl p-2 w-full min-w-0"
-                value={exDate}
-                onChange={e=>setExDate(e.target.value)}
-              />
+              {hasTermDates && !useCustomDate ? (
+                <>
+                  <select
+                    className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
+                    value={exDate}
+                    onChange={e=>onSelectDateChange(e.target.value)}
+                  >
+                    {termDates.map(d => (
+                      <option key={d.id} value={d.meeting_date}>{d.meeting_date}</option>
+                    ))}
+                    <option value="__custom__">— تاريخ آخر (داخل نطاق الترم) —</option>
+                  </select>
+                  <div className="text-[11px] text-gray-500 mt-1">اختر تاريخًا من جدول الترم أو اختر “تاريخ آخر”.</div>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="date"
+                    className="border rounded-xl p-2 w-full min-w-0"
+                    value={exDate}
+                    min={termMin || undefined}
+                    max={termMax || undefined}
+                    onChange={e=>setExDate(e.target.value)}
+                  />
+                  {hasTermDates && (
+                    <button
+                      type="button"
+                      className="text-[12px] underline mt-1"
+                      onClick={()=>{
+                        if (termDates.length) { setUseCustomDate(false); setExDate(termDates[0].meeting_date) }
+                      }}
+                    >
+                      الرجوع لاختيار من جدول الترم
+                    </button>
+                  )}
+                </>
+              )}
             </div>
+
             <div className="sm:col-span-2 md:col-span-2">
               <label className="text-sm">اسم المنتج</label>
               <input
@@ -525,14 +622,17 @@ export default function TeamFinance() {
                 placeholder="مثلاً: أدوات..."
               />
             </div>
+
             <div>
               <label className="text-sm">العدد</label>
               <input type="number" min={1} className="border rounded-xl p-2 w-full min-w-0" value={exQty} onChange={e=>setExQty(e.target.value as any)} />
             </div>
+
             <div>
               <label className="text-sm">سعر القطعة</label>
               <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full min-w-0" value={exUnit} onChange={e=>setExUnit(e.target.value as any)} />
             </div>
+
             <div className="sm:col-span-2 md:col-span-5 flex justify-end">
               <LoadingButton loading={savingExp} onClick={addExpense}>إضافة مصروف</LoadingButton>
             </div>
