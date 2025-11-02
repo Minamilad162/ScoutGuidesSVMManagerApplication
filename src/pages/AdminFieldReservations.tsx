@@ -1,5 +1,5 @@
 // src/pages/AdminFieldReservations.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
 import { useToast } from '../components/ui/Toaster'
@@ -25,6 +25,10 @@ type SummaryRow = { team_id: string; team_name: string; reservations: number; di
 type QtyCol = 'quantity' | 'qty' | 'count' | null
 type SoftDeleteCol = 'soft_deleted_at' | 'deleted_at' | 'is_deleted' | null
 
+// ⬅️ الترم + تواريخه
+type Term = { id: string; name: string; year: number; start_date: string | null; end_date: string | null }
+type TermDateRow = { id: string; meeting_date: string } // YYYY-MM-DD
+
 export default function AdminFieldReservations() {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
@@ -37,6 +41,18 @@ export default function AdminFieldReservations() {
 
   // فلتر “يوم واحد”
   const [dayDate, setDayDate] = useState<string>('')
+
+  // ✅ الترم + تواريخه
+  const [terms, setTerms] = useState<Term[]>([])
+  const [termId, setTermId] = useState<string>('')
+  const termMeta = useMemo(() => terms.find(t => t.id === termId) || null, [terms, termId])
+
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
+  const hasTermDates = termDates.length > 0
+  const [useCustomDay, setUseCustomDay] = useState<boolean>(false)
+  const [selectedDay, setSelectedDay] = useState<string>('') // YYYY-MM-DD
+  const minDate = termMeta?.start_date || undefined
+  const maxDate = termMeta?.end_date || undefined
 
   // بيانات حجوزات الأرض
   const [rows, setRows] = useState<Row[]>([])
@@ -70,15 +86,58 @@ export default function AdminFieldReservations() {
       if (te) throw te; if (ze) throw ze
       setTeams((ts as any) ?? []); setZones((zs as any) ?? [])
 
+      // تاريخ افتراضي = اليوم
       const today = new Date()
       const pad=(n:number)=>String(n).padStart(2,'0')
-      setDayDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
+      const todayStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`
+      setDayDate(todayStr)
 
+      // حمّل مسميات الأدوات
       await loadMaterialNames()
+
+      // حمّل الترمات
+      await loadTerms()
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحميل')
     } finally { setLoading(false) }
   }
+
+  async function loadTerms() {
+    const { data, error } = await supabase
+      .from('terms')
+      .select('id,name,year,start_date,end_date')
+      .order('year', { ascending: false })
+      .order('name', { ascending: true })
+    if (error) throw error
+    const arr = (data ?? []) as Term[]
+    setTerms(arr)
+    if (arr.length && !termId) setTermId(arr[0].id)
+  }
+
+  // لما الترم يتغير، حمّل تواريخه واضبط اختيار اليوم
+  useEffect(() => {
+    if (!termId) return
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('term_meeting_dates')
+        .select('id,meeting_date')
+        .eq('term_id', termId)
+        .order('meeting_date', { ascending: true })
+      if (error) { toast.error(error.message || 'تعذر تحميل تواريخ الترم'); return }
+      const list = (data ?? []) as TermDateRow[]
+      setTermDates(list)
+
+      if (list.length > 0) {
+        const d = list[0].meeting_date
+        setSelectedDay(d)
+        setUseCustomDay(false)
+        setDayDate(d) // ← يحدّث الجداول
+      } else {
+        setUseCustomDay(true) // لا يوجد جدول — اسمح بتاريخ حر
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termId])
 
   async function loadMaterialNames() {
     const candidates = [
@@ -430,6 +489,17 @@ export default function AdminFieldReservations() {
     }
   }
 
+  // ⬅️ تغيير اليوم المختار من جدول الترم
+  function onTermDayChange(v: string) {
+    if (v === '__custom__') {
+      setUseCustomDay(true)
+      return
+    }
+    setUseCustomDay(false)
+    setSelectedDay(v)
+    setDayDate(v) // ← هذا هو الفلتر المعتمد
+  }
+
   return (
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
@@ -439,17 +509,77 @@ export default function AdminFieldReservations() {
       {/* الخرائط دائمًا */}
       <FieldMaps className="mb-4" sticky height="h-72 md:h-[28rem]" />
 
-      {/* فلاتر: يوم + فريق */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+      {/* فلاتر: ترم + تاريخ + فريق */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+        {/* الترم */}
+        <div>
+          <label className="text-sm">الترم</label>
+          <select
+            className="border rounded-xl p-2 w-full min-w-0"
+            value={termId}
+            onChange={e=>setTermId(e.target.value)}
+          >
+            {terms.map(t => (
+              <option key={t.id} value={t.id}>{t.year} — {t.name}</option>
+            ))}
+          </select>
+          {termMeta?.start_date && termMeta?.end_date && (
+            <div className="text-[11px] text-gray-500 mt-1">
+              نطاق الترم: {termMeta.start_date} → {termMeta.end_date}
+            </div>
+          )}
+        </div>
+
+        {/* التاريخ (من جدول الترم أو custom) */}
         <div>
           <label className="text-sm">التاريخ</label>
-          <input
-            type="date"
-            className="border rounded-xl p-2 w-full min-w-0"
-            value={dayDate}
-            onChange={e=>setDayDate(e.target.value)}
-          />
+          {hasTermDates && !useCustomDay ? (
+            <>
+              <select
+                className="border rounded-xl p-2 w-full min-w-0"
+                value={selectedDay}
+                onChange={e=>onTermDayChange(e.target.value)}
+              >
+                {termDates.map(d => (
+                  <option key={d.id} value={d.meeting_date}>{d.meeting_date}</option>
+                ))}
+                <option value="__custom__">— تاريخ آخر —</option>
+              </select>
+              <div className="text-[11px] text-gray-500 mt-1">
+                اختر تاريخًا من جدول الترم أو اختر “تاريخ آخر”.
+              </div>
+            </>
+          ) : (
+            <>
+              <input
+                type="date"
+                className="border rounded-xl p-2 w-full min-w-0"
+                value={dayDate}
+                onChange={e=>setDayDate(e.target.value)}
+                min={minDate}
+                max={maxDate}
+              />
+              {hasTermDates && (
+                <button
+                  type="button"
+                  className="text-[12px] underline mt-1"
+                  onClick={()=>{
+                    if (termDates.length){
+                      setUseCustomDay(false)
+                      const d = termDates[0].meeting_date
+                      setSelectedDay(d)
+                      setDayDate(d)
+                    }
+                  }}
+                >
+                  الرجوع لاختيار من جدول الترم
+                </button>
+              )}
+            </>
+          )}
         </div>
+
+        {/* الفريق */}
         <div>
           <label className="text-sm">الفريق</label>
           <select
@@ -461,6 +591,7 @@ export default function AdminFieldReservations() {
             {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
+
         <div className="text-end mt-2 sm:mt-0">
           <button className="btn border w-full sm:w-auto" onClick={refreshAll}>تحديث</button>
         </div>
@@ -668,11 +799,14 @@ export default function AdminFieldReservations() {
                   />
                 </td>
                 <td className="p-2">
+                  {/* مبدئيًا خليه حر؛ لو حابب نخليه من تواريخ الترم لكل صف نقدر نزود لوجيك خاص لاحقًا */}
                   <input
                     type="date"
                     className="border rounded-xl p-1 w-full sm:w-auto min-w-0"
                     value={r.meeting_date ?? ''}
                     onChange={e=>setRows(prev=>prev.map(x=>x.id===r.id?{...x, meeting_date: e.target.value}:x))}
+                    min={minDate}
+                    max={maxDate}
                   />
                 </td>
                 <td className="p-2">
