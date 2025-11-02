@@ -403,7 +403,7 @@ export default function TeamSecretary() {
 
       <div className="flex items-center gap-2 flex-wrap">
         <button className={`tab ${tab==='equipiers'?'tab-active':''}` } onClick={()=>setTab('equipiers')}>الأولاد (إدارة)</button>
-        <button className={`tab ${tab==='attendance'?'tab-active':''}`} onClick={()=>setTab('attendance')}>حضور الاجتماعات</button>
+        {/* <button className={`tab ${tab==='attendance'?'tab-active':''}`} onClick={()=>setTab('attendance')}>حضور الاجتماعات</button> */}
       </div>
 
       {/* ===== تبويب الحضور ===== */}
