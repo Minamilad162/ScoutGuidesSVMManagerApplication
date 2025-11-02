@@ -16,6 +16,9 @@ type Term = { id: string; name: string; year: number; start_date: string | null;
 type FieldZone = { id: string; name: string; active: boolean }
 type TeamLink = { id: string; team_id: string; kind: 'images'|'program'; url: string }
 
+// NEW: تاريخ اجتماع للترم
+type TermDateRow = { id: string; meeting_date: string }
+
 export default function Admin() {
   const { roles } = useAuth()
   const isAdmin = useMemo(() => roles.some(r => r.role_slug === 'admin'), [roles])
@@ -245,6 +248,80 @@ export default function Admin() {
     setTerms(data ?? [])
   }
 
+  // ====== إدارة تواريخ الاجتماعات للترم ======
+  const [manageTerm, setManageTerm] = useState<Term | null>(null)
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
+  const [newTermDate, setNewTermDate] = useState<string>('') // YYYY-MM-DD
+  const [savingTermDate, setSavingTermDate] = useState(false)
+  const [removingDateId, setRemovingDateId] = useState<string | null>(null)
+
+  function withinRange(d: string, start?: string|null, end?: string|null){
+    if (!d) return false
+    if (!start || !end) return true
+    return d >= start && d <= end
+  }
+
+  async function openManageDates(t: Term) {
+    setManageTerm(t)
+    setNewTermDate('')
+    const { data, error } = await supabase
+      .from('term_meeting_dates')
+      .select('id, meeting_date')
+      .eq('term_id', t.id)
+      .order('meeting_date', { ascending: true })
+    if (!error) setTermDates((data as any) ?? [])
+  }
+
+  async function addTermDate(){
+    if (!manageTerm) return
+    setErr(null); setMsg(null)
+    if (!newTermDate) { setErr('اختر تاريخ اجتماع'); return }
+    if (!manageTerm.start_date || !manageTerm.end_date){
+      setErr('حدد تاريخي بداية ونهاية الترم أولاً'); return
+    }
+    if (!withinRange(newTermDate, manageTerm.start_date, manageTerm.end_date)){
+      setErr('التاريخ خارج حدود الترم'); return
+    }
+    if (termDates.some(x => x.meeting_date === newTermDate)){
+      setErr('التاريخ مضاف من قبل'); return
+    }
+
+    setSavingTermDate(true)
+    try{
+      const { error } = await supabase
+        .from('term_meeting_dates')
+        .insert({ term_id: manageTerm.id, meeting_date: newTermDate })
+      if (error){
+        const msg = String(error.message || '')
+        if (msg.includes('term_meeting_dates_unique')) throw new Error('التاريخ مضاف من قبل')
+        throw error
+      }
+      await openManageDates(manageTerm)
+      setNewTermDate('')
+      setMsg('تم إضافة تاريخ اجتماع')
+    } catch(e:any){
+      setErr(e.message || 'تعذر الإضافة')
+    } finally {
+      setSavingTermDate(false)
+    }
+  }
+
+  async function removeTermDate(id: string){
+    if (!manageTerm) return
+    setErr(null); setMsg(null)
+    setRemovingDateId(id)
+    try{
+      const { error } = await supabase.from('term_meeting_dates').delete().eq('id', id)
+      if (error) throw error
+      await openManageDates(manageTerm)
+      setMsg('تم حذف التاريخ')
+    } catch(e:any){
+      setErr(e.message || 'تعذر الحذف')
+    } finally {
+      setRemovingDateId(null)
+    }
+  }
+
   // ========== Field Zones ==========
   const [zones, setZones] = useState<FieldZone[]>([])
   const [zName, setZName] = useState('')
@@ -352,7 +429,7 @@ export default function Admin() {
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">إضافة/تعديل عضو</h2>
 
-            {/* ✅ Grid responsive + inputs full width + min-w-0 لمنع overflow */}
+            {/* Grid responsive */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               <input className="border rounded-xl p-2 w-full min-w-0" placeholder="الاسم الكامل" value={mFull} onChange={e=>setMFull(e.target.value)} />
 
@@ -384,7 +461,7 @@ export default function Admin() {
           </div>
 
           <div className="card space-y-3">
-            {/* ✅ فلاتر تلفّ على الموبايل */}
+            {/* فلاتر */}
             <div className="flex flex-wrap gap-2">
               <input className="border rounded-xl p-2 flex-1 min-w-[200px]" placeholder="بحث بالاسم..." value={q} onChange={e=>setQ(e.target.value)} />
               <select className="border rounded-xl p-2" value={fltTeam} onChange={e=>setFltTeam(e.target.value)}>
@@ -403,7 +480,7 @@ export default function Admin() {
               <button className="btn border" onClick={()=>fileRef.current?.click()}>استيراد CSV</button>
             </div>
 
-            {/* ✅ Responsive table wrapper */}
+            {/* جدول */}
             <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
               <table className="w-full min-w-[1000px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
@@ -444,7 +521,6 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">تعيين دور</h2>
-            {/* ✅ Grid responsive في الفورم */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               <select className="border rounded-xl p-2 w-full min-w-0" value={selectedMemberId} onChange={e=>setSelectedMemberId(e.target.value)}>
                 <option value="">— اختر عضو —</option>
@@ -458,7 +534,7 @@ export default function Admin() {
                 <option value="">— Global —</option>
                 {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <button className="btn btn-brand w-full md:w-auto">تعيين</button>
+              <button className="btn btn-brand w-full md:w-auto" onClick={assignRole}>تعيين</button>
             </div>
             <div className="text-xs text-gray-500">* Global يعني الدور بدون فريق (مثل Admin/Ancien)</div>
           </div>
@@ -491,7 +567,7 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">Terms</h2>
-            {/* ✅ Grid responsive للفورم */}
+            {/* فورم إنشاء/تعديل ترم */}
             <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3">
               <input className="border rounded-xl p-2 w-full min-w-0" placeholder="اسم الترم" value={termName} onChange={e=>setTermName(e.target.value)} />
               <input type="number" className="border rounded-xl p-2 w-full min-w-0" placeholder="السنة" value={termYear} onChange={e=>setTermYear(Number(e.target.value))} />
@@ -499,17 +575,21 @@ export default function Admin() {
               <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={termEnd} onChange={e=>setTermEnd(e.target.value)} />
               <button className="btn btn-brand w-full md:w-auto" onClick={saveTerm}>{termEditId ? 'تحديث' : 'إضافة'}</button>
             </div>
+            <div className="text-xs text-gray-500">
+              * عدد اجتماعات الترم يُحسب تلقائيًا من تواريخ الاجتماعات المُضافة أدناه.
+            </div>
           </div>
 
           <div className="card space-y-3">
             <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
-              <table className="w-full min-w-[700px] text-xs sm:text-sm">
+              <table className="w-full min-w-[820px] text-xs sm:text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="p-2">الاسم</th>
                     <th className="p-2">السنة</th>
                     <th className="p-2">من</th>
                     <th className="p-2">إلى</th>
+                    <th className="p-2 text-center">اجتماعات (إدارة)</th>
                     <th className="p-2"></th>
                   </tr>
                 </thead>
@@ -521,14 +601,85 @@ export default function Admin() {
                       <td className="p-2 whitespace-nowrap">{t.start_date ?? '—'}</td>
                       <td className="p-2 whitespace-nowrap">{t.end_date ?? '—'}</td>
                       <td className="p-2 text-center">
+                        <button className="btn border text-xs" onClick={()=>openManageDates(t)}>إدارة التواريخ</button>
+                      </td>
+                      <td className="p-2 text-center">
                         <button className="text-sm" onClick={()=>editTerm(t)}>تعديل</button>
                       </td>
                     </tr>
                   ))}
+                  {terms.length === 0 && (
+                    <tr><td className="p-3 text-center text-gray-500" colSpan={6}>لا توجد ترايم</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* إدارة تواريخ الترم المختار */}
+          {manageTerm && (
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="font-semibold">
+                  تواريخ اجتماعات الترم: {manageTerm.year} — {manageTerm.name}
+                  <span className="text-xs text-gray-500 ms-2">
+                    ({manageTerm.start_date ?? '—'} → {manageTerm.end_date ?? '—'})
+                  </span>
+                </h3>
+                <div className="text-sm">
+                  إجمالي الاجتماعات: <b>{termDates.length}</b>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+                <div>
+                  <label className="text-sm">تاريخ اجتماع (Meeting)</label>
+                  <input
+                    type="date"
+                    className="border rounded-xl p-2 w-full"
+                    value={newTermDate}
+                    onChange={e=>setNewTermDate(e.target.value)}
+                    min={manageTerm.start_date ?? undefined}
+                    max={manageTerm.end_date ?? undefined}
+                  />
+                </div>
+                <button className="btn btn-brand w-full sm:w-auto" onClick={addTermDate} disabled={savingTermDate}>
+                  {savingTermDate ? '...' : 'إضافة'}
+                </button>
+              </div>
+
+              <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+                <table className="w-full min-w-[420px] text-xs sm:text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="p-2 text-start">التاريخ</th>
+                      <th className="p-2 text-center">حذف</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {termDates.map(d => (
+                      <tr key={d.id} className="border-t">
+                        <td className="p-2 whitespace-nowrap">{d.meeting_date}</td>
+                        <td className="p-2 text-center">
+                          <button className="btn border text-xs" onClick={()=>removeTermDate(d.id)} disabled={removingDateId===d.id}>
+                            {removingDateId===d.id ? '...' : 'حذف'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {termDates.length === 0 && (
+                      <tr><td className="p-3 text-center text-gray-500" colSpan={2}>لا توجد تواريخ مضافة</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="text-xs text-gray-600">
+                * هذه التواريخ تُستخدم لاحقًا كخيارات ثابتة لاجتماعات <b>Meeting</b> فقط. <br/>
+                * اجتماع <b>Preparation</b> يختاره القائد بتاريخ حر (ويُفضّل التحقق أنه داخل حدود الترم).
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -536,7 +687,6 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">Field Zones</h2>
-            {/* ✅ Grid responsive للفورم */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               <input className="border rounded-xl p-2 w-full min-w-0" placeholder="اسم القطاع (A1/A2/...)" value={zName} onChange={e=>setZName(e.target.value)} />
               <label className="text-sm flex items-center gap-2 w-full min-w-0">
@@ -574,7 +724,6 @@ export default function Admin() {
         <div className="space-y-6">
           <div className="card space-y-3">
             <h2 className="text-lg font-bold">Team Links</h2>
-            {/* ✅ Grid responsive للفورم */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <select className="border rounded-xl p-2 w-full min-w-0" value={selTeam} onChange={e=>setSelTeam(e.target.value)}>
                 <option value="">— اختر فريق —</option>
@@ -583,7 +732,7 @@ export default function Admin() {
               <input className="border rounded-xl p-2 w-full min-w-0" placeholder="رابط الصور (Drive)" value={imgUrl} onChange={e=>setImgUrl(e.target.value)} />
               <input className="border rounded-xl p-2 w-full min-w-0" placeholder="رابط المنهج (Drive)" value={progUrl} onChange={e=>setProgUrl(e.target.value)} />
               <div className="md:col-span-3 flex justify-end">
-                <button className="btn btn-brand">حفظ</button>
+                <button className="btn btn-brand" onClick={saveLinks}>حفظ</button>
               </div>
             </div>
           </div>
