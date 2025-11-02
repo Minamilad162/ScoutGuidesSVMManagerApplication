@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/ui/Toaster'
 import { PageLoader } from '../components/ui/PageLoader'
@@ -9,23 +9,31 @@ import FieldMaps from '../components/FieldMaps'
 
 type Team = { id: string; name: string }
 type Zone = { id: string; name: string }
+type Term = { id: string; name: string; year: number; start_date: string | null; end_date: string | null }
+type TermDateRow = { id: string; meeting_date: string } // YYYY-MM-DD
 
-// ===== Helpers (تثبيت المنطقة الزمنية) =====
-// نحول "YYYY-MM-DDTHH:MM" (محلي) إلى Date محلية ثم ISO UTC
-function localDateTimeToISOString(dtLocal: string): string {
-  // حراسة
-  if (!dtLocal || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dtLocal)) {
-    // fallback: لو جت قيمة مختلفة، خلّيها يحاول يحوّلها
-    const d = new Date(dtLocal)
-    return isNaN(+d) ? new Date().toISOString() : d.toISOString()
-  }
-
-  const [datePart, timePart] = dtLocal.split('T')
-  const [y, m, d] = datePart.split('-').map(Number)
-  const [hh, mm] = timePart.split(':').map(Number)
-  // Date(...) هنا محلي، toISOString هيحوّل لـ UTC بشكل صحيح
-  const local = new Date(y, m - 1, d, hh, mm, 0, 0)
+// ===== Helpers =====
+function pad2(n: number) { return String(n).padStart(2, '0') }
+function todayYMD() {
+  const now = new Date()
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`
+}
+function ymdToDateParts(ymd: string) {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return { y, m: m - 1, d }
+}
+// كوّن ISO من تاريخ (Y-M-D) + وقت (HH:MM) محلي → ISO (UTC) للتخزين الآمن
+function localYMDhmToISO(ymd: string, hm: string): string {
+  const { y, m, d } = ymdToDateParts(ymd)
+  const [hh, mm] = hm.split(':').map(Number)
+  const local = new Date(y, m, d, hh, mm, 0, 0)
   return local.toISOString()
+}
+// تحقّق أن تاريخ داخل نطاق
+function withinRange(d: string, start?: string | null, end?: string | null) {
+  if (!d) return false
+  if (!start || !end) return true
+  return d >= start && d <= end
 }
 
 export default function FieldReservationsTeam() {
@@ -42,23 +50,37 @@ export default function FieldReservationsTeam() {
   const [teamId, setTeamId] = useState<string>(''); const [teamName, setTeamName] = useState<string>('')
 
   const [zones, setZones] = useState<Zone[]>([])
-  const [meetingDate, setMeetingDate] = useState<string>(''); const [mtype, setMtype] = useState<'preparation'|'meeting'>('meeting')
-  const [startsAt, setStartsAt] = useState<string>(''); const [endsAt, setEndsAt] = useState<string>(''); const [zoneId, setZoneId] = useState<string>('')
+
+  // Terms + Dates
+  const [terms, setTerms] = useState<Term[]>([])
+  const [selTerm, setSelTerm] = useState<string>('')          // المختار في UI
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
+
+  // Meeting inputs
+  const [mtype, setMtype] = useState<'preparation' | 'meeting'>('meeting')
+  const [meetingDate, setMeetingDate] = useState<string>('')  // YYYY-MM-DD
+  const [startTime, setStartTime] = useState<string>('16:00') // HH:MM
+  const [endTime, setEndTime] = useState<string>('18:00')     // HH:MM
+  const [zoneId, setZoneId] = useState<string>('')
 
   const [rows, setRows] = useState<any[]>([])
 
+  // ===== Init =====
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
     try {
+      // Zones
       const { data: z, error: ze } = await supabase.from('field_zones').select('id,name').eq('active', true).order('name')
       if (ze) throw ze
       setZones((z as any) ?? []); if (z && z.length) setZoneId(z[0].id)
 
+      // Teams (حسب الصلاحية)
       if (isAdmin) {
         const { data: ts, error: te } = await supabase.from('teams').select('id,name').order('name')
         if (te) throw te
-        setTeams((ts as any) ?? []); if (ts && ts.length) { setTeamId(ts[0].id); setTeamName(ts[0].name) }
+        setTeams((ts as any) ?? [])
+        if (ts && ts.length) { setTeamId(ts[0].id); setTeamName(ts[0].name) }
       } else {
         const { data: me, error: meErr } = await supabase.from('v_me').select('team_id').maybeSingle()
         if (meErr) throw meErr
@@ -69,13 +91,31 @@ export default function FieldReservationsTeam() {
         setTeamName(t?.name || '—')
       }
 
-      const now = new Date(); const pad = (n:number)=>String(n).padStart(2,'0')
-      const date = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
-      setMeetingDate(date); setStartsAt(`${date}T16:00`); setEndsAt(`${date}T18:00`)
-    } catch (e:any) { toast.error(e.message || 'تعذر التحميل') }
-    finally { setLoading(false) }
+      // Terms (نجيب ونحدد الافتراضي النشط)
+      const { data: tm, error: tmErr } = await supabase
+        .from('terms')
+        .select('id,name,year,start_date,end_date')
+        .order('year', { ascending: false })
+        .order('name', { ascending: true })
+      if (tmErr) throw tmErr
+      setTerms(tm ?? [])
+
+      // حدد الترم النشط بناء على اليوم
+      const today = todayYMD()
+      let activeTermId = tm?.find(t => t.start_date && t.end_date && withinRange(today, t.start_date, t.end_date))?.id
+      if (!activeTermId && tm && tm.length) activeTermId = tm[0].id
+      if (activeTermId) setSelTerm(activeTermId)
+
+      // تاريخ افتراضي
+      setMeetingDate(today) // هيتعدل تلقائيًا لو mtype=meeting بعد تحميل termDates
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر التحميل')
+    } finally {
+      setLoading(false)
+    }
   }
 
+  // لما يختار فريق — نزّل حجوزاته
   useEffect(() => { if (teamId) refresh() }, [teamId])
   async function refresh() {
     try {
@@ -87,27 +127,84 @@ export default function FieldReservationsTeam() {
         .order('starts_at', { ascending: true })
       if (error) throw error
       setRows((data as any) ?? [])
-    } catch (e:any) { toast.error(e.message || 'تعذر تحميل الحجوزات') }
+    } catch (e: any) { toast.error(e.message || 'تعذر تحميل الحجوزات') }
   }
 
+  // تحميل تواريخ الترم المختار
+  useEffect(() => { if (selTerm) loadTermDates(selTerm) }, [selTerm])
+  async function loadTermDates(termId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('term_meeting_dates')
+        .select('id, meeting_date')
+        .eq('term_id', termId)
+        .order('meeting_date', { ascending: true })
+      if (error) throw error
+      const list = (data as any as TermDateRow[]) ?? []
+      setTermDates(list)
+
+      // لو النوع Meeting اختار أول تاريخ متاح تلقائيًا
+      if (mtype === 'meeting') {
+        if (list.length) setMeetingDate(list[0].meeting_date)
+        else setMeetingDate('') // مفيش تواريخ مضافة
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر تحميل تواريخ الترم')
+    }
+  }
+
+  // تغيير نوع اليوم: Meeting => استخدم قائمة التواريخ؛ Preparation => تاريخ حر (اليوم افتراضيًا)
+  useEffect(() => {
+    if (mtype === 'meeting') {
+      if (termDates.length) setMeetingDate(termDates[0].meeting_date)
+      else setMeetingDate('')
+    } else {
+      if (!meetingDate) setMeetingDate(todayYMD())
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mtype, termDates])
+
+  // ===== Actions =====
   async function save() {
+    // فالفيديشن أساسي
     if (!teamId) return toast.error('اختر الفريق')
     if (!zoneId) return toast.error('اختر القطاع')
-    if (!meetingDate) return toast.error('اختر تاريخ الاجتماع')
-    if (!startsAt || !endsAt) return toast.error('أدخل وقتي البداية والنهاية')
+
+    if (mtype === 'meeting') {
+      if (!selTerm) return toast.error('اختر الترم')
+      if (!meetingDate) return toast.error('اختر تاريخ الاجتماع من قائمة التواريخ')
+      // تأكد التاريخ من ضمن القائمة
+      if (!termDates.some(d => d.meeting_date === meetingDate)) {
+        return toast.error('التاريخ المختار غير موجود ضمن تواريخ الترم')
+      }
+      // (اختياري) تحقّق داخل نطاق الترم المختار
+      const t = terms.find(t => t.id === selTerm)
+      if (t && !withinRange(meetingDate, t.start_date, t.end_date)) {
+        return toast.error('التاريخ خارج حدود الترم')
+      }
+    } else {
+      if (!meetingDate) return toast.error('اختر تاريخ الاجتماع')
+      // (اختياري) لو فيه ترم نشط حاليًا، تقدر تمنع تاريخ خارج النطاق
+      const t = terms.find(t => t.id === selTerm)
+      if (t?.start_date && t?.end_date && !withinRange(meetingDate, t.start_date, t.end_date)) {
+        return toast.error('التاريخ خارج حدود الترم')
+      }
+    }
+
+    if (!startTime || !endTime) return toast.error('أدخل وقتي البداية والنهاية')
+
+    // كوّن Date محلي من (meetingDate + HH:MM)
+    const startISO = localYMDhmToISO(meetingDate, startTime)
+    const endISO   = localYMDhmToISO(meetingDate, endTime)
 
     // تأكد إن البداية قبل النهاية
-    const startsLocal = new Date(startsAt.replace(' ', 'T'))
-    const endsLocal   = new Date(endsAt.replace(' ', 'T'))
-    if (isNaN(+startsLocal) || isNaN(+endsLocal)) return toast.error('تنسيق الوقت غير صالح')
-    if (startsLocal >= endsLocal) return toast.error('وقت البداية يجب أن يسبق النهاية')
-
-    // ✅ التحويل إلى ISO UTC قبل الحفظ (علشان نتجنب الانزياح)
-    const startsISO = localDateTimeToISOString(startsAt)
-    const endsISO   = localDateTimeToISOString(endsAt)
+    if (new Date(startISO) >= new Date(endISO)) {
+      return toast.error('وقت البداية يجب أن يسبق وقت النهاية')
+    }
 
     setSaving(true)
     try {
+      // لو عندك جدول meetings وعايز تربط: (زي كودك القديم)
       const { data: mrow, error: me } = await supabase
         .from('meetings')
         .upsert({ team_id: teamId, meeting_date: meetingDate, mtype }, { onConflict: 'team_id,meeting_date,mtype' })
@@ -117,8 +214,8 @@ export default function FieldReservationsTeam() {
       const { error: ie } = await supabase.from('field_reservations').insert({
         team_id: teamId,
         field_zone_id: zoneId,
-        starts_at: startsISO, // <-- هنا
-        ends_at: endsISO,     // <-- وهنا
+        starts_at: startISO,
+        ends_at: endISO,
         meeting_id: mrow?.id || null
       })
       if (ie) {
@@ -127,9 +224,13 @@ export default function FieldReservationsTeam() {
           throw new Error('تعذر الحجز: هناك تعارض مع فريق آخر في نفس الوقت لهذا القطاع')
         throw ie
       }
-      toast.success('تم الحجز'); await refresh()
-    } catch (e:any) { toast.error(e.message || 'تعذر الحجز') }
-    finally { setSaving(false) }
+      toast.success('تم الحجز')
+      await refresh()
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر الحجز')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function cancel(id: string) {
@@ -138,10 +239,11 @@ export default function FieldReservationsTeam() {
       const { error } = await supabase.from('field_reservations').update({ soft_deleted_at: new Date().toISOString() }).eq('id', id)
       if (error) throw error
       toast.success('تم إلغاء الحجز'); await refresh()
-    } catch (e:any) { toast.error(e.message || 'تعذر الإلغاء') }
+    } catch (e: any) { toast.error(e.message || 'تعذر الإلغاء') }
     finally { setCanceling(null) }
   }
 
+  // ===== UI =====
   return (
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
@@ -151,6 +253,7 @@ export default function FieldReservationsTeam() {
       {/* الخرائط دائمًا */}
       <FieldMaps className="mb-4" sticky height="h-72 md:h-[28rem]" />
 
+      {/* اختيار الفريق */}
       {!isAdmin ? (
         <div className="mb-3 text-sm">
           <span className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border">
@@ -169,43 +272,81 @@ export default function FieldReservationsTeam() {
       )}
 
       <div className={`${(!isAdmin && !gate.canBookReservations(teamId)) ? 'opacity-60 pointer-events-none' : ''}`}>
-        <div className="grid md:grid-cols-5 gap-2 items-end">
-          <div>
-            <label className="text-sm">تاريخ الاجتماع</label>
-            <input type="date" className="border rounded-xl p-2 w-full" value={meetingDate} onChange={e=>setMeetingDate(e.target.value)} />
-          </div>
-          <div>
+        <div className="grid md:grid-cols-6 gap-2 items-end">
+          {/* اختيار نوع اليوم */}
+          <div className="md:col-span-2">
             <label className="text-sm">نوع اليوم</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={mtype} onChange={e=>setMtype(e.target.value as any)}>
-              <option value="preparation">تحضير</option>
-              <option value="meeting">اجتماع</option>
+            {/** <option value="preparation">تحضير (تاريخ حر)</option> */}
+              <option value="meeting">اجتماع (من تواريخ الترم)</option>
             </select>
           </div>
-          <div>
+
+          {/* اختيار الترم (مفيد خصوصًا لـ Meeting) */}
+          <div className="md:col-span-2">
+            <label className="text-sm">الترم</label>
+            <select className="border rounded-xl p-2 w-full cursor-pointer" value={selTerm} onChange={e=>setSelTerm(e.target.value)}>
+              {terms.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.year} — {t.name}{t.start_date && t.end_date ? ` (${t.start_date} → ${t.end_date})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* تاريخ الاجتماع: Meeting = select من تواريخ الترم | Preparation = input date */}
+          <div className="md:col-span-2">
+            <label className="text-sm">تاريخ الاجتماع</label>
+            {mtype === 'meeting' ? (
+              <select
+                className="border rounded-xl p-2 w-full cursor-pointer"
+                value={meetingDate}
+                onChange={e=>setMeetingDate(e.target.value)}
+              >
+                {termDates.length === 0 && <option value="">— لا توجد تواريخ —</option>}
+                {termDates.map(d => <option key={d.id} value={d.meeting_date}>{d.meeting_date}</option>)}
+              </select>
+            ) : (
+              <input
+                type="date"
+                className="border rounded-xl p-2 w-full"
+                value={meetingDate}
+                onChange={e=>setMeetingDate(e.target.value)}
+                min={terms.find(t=>t.id===selTerm)?.start_date ?? undefined}
+                max={terms.find(t=>t.id===selTerm)?.end_date ?? undefined}
+              />
+            )}
+          </div>
+
+          {/* القطاع */}
+          <div className="md:col-span-2">
             <label className="text-sm">القطاع</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={zoneId} onChange={e=>setZoneId(e.target.value)}>
               {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-sm">من</label>
+
+          {/* الأوقات: وقت فقط (اليوم من meetingDate) */}
+          <div className="md:col-span-1">
+            <label className="text-sm">من (الساعة)</label>
             <input
-              type="datetime-local"
+              type="time"
               className="border rounded-xl p-2 w-full"
-              value={startsAt}
-              onChange={e=>setStartsAt(e.target.value)}
+              value={startTime}
+              onChange={e=>setStartTime(e.target.value)}
             />
           </div>
-          <div>
-            <label className="text-sm">إلى</label>
+          <div className="md:col-span-1">
+            <label className="text-sm">إلى (الساعة)</label>
             <input
-              type="datetime-local"
+              type="time"
               className="border rounded-xl p-2 w-full"
-              value={endsAt}
-              onChange={e=>setEndsAt(e.target.value)}
+              value={endTime}
+              onChange={e=>setEndTime(e.target.value)}
             />
           </div>
-          <div className="md:col-span-5 text-end">
+
+          <div className="md:col-span-6 text-end">
             <LoadingButton loading={saving} onClick={save}>حجز القطاع</LoadingButton>
           </div>
         </div>
