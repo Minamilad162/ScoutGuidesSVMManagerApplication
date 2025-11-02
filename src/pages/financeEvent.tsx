@@ -10,6 +10,7 @@ import ExcelJS from 'exceljs'
 type RoleRow = { role_slug: string; team_id?: string | null }
 type EventRow = { id: string; name: string; event_date: string; notes: string | null }
 type EventExpense = { id: string; expense_date: string; item_name: string; qty: number; unit_price: number; total: number }
+type EventBudget = { id: string; item_name: string; qty: number; unit_price: number; line_total: number }
 
 export default function FinanceEvent() {
   const toast = useToast()
@@ -43,18 +44,34 @@ export default function FinanceEvent() {
   const [savingExp, setSavingExp] = useState(false)
   const [deletingExpId, setDeletingExpId] = useState<string>('')
 
-  // فورم إضافة بند
+  // فورم إضافة بند مصروف
   const [exDate, setExDate] = useState('')
   const [exName, setExName] = useState('')
   const [exQty, setExQty] = useState<number | ''>('')
   const [exUnit, setExUnit] = useState<number | ''>('')
 
-  // تعديل صف موجود
+  // تعديل صف مصروف موجود
   const [editingId, setEditingId] = useState<string>('') // expense id
   const [editDate, setEditDate] = useState('')
   const [editName, setEditName] = useState('')
   const [editQty, setEditQty] = useState<number | ''>('')
   const [editUnit, setEditUnit] = useState<number | ''>('')
+
+  // بنود الميزانية
+  const [budgets, setBudgets] = useState<EventBudget[]>([])
+  const [savingBudget, setSavingBudget] = useState(false)
+  const [deletingBudgetId, setDeletingBudgetId] = useState<string>('')
+
+  // فورم إضافة بند ميزانية
+  const [bTitle, setBTitle] = useState('')
+  const [bQty, setBQty] = useState<number | ''>('')
+  const [bUnit, setBUnit] = useState<number | ''>('')
+
+  // تعديل بند ميزانية
+  const [editingBudgetId, setEditingBudgetId] = useState<string>('') // budget id
+  const [editBTitle, setEditBTitle] = useState('')
+  const [editBQty, setEditBQty] = useState<number | ''>('')
+  const [editBUnit, setEditBUnit] = useState<number | ''>('')
 
   // === Export state ===
   const [exporting, setExporting] = useState(false)
@@ -112,16 +129,23 @@ export default function FinanceEvent() {
     new Intl.NumberFormat('en-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 2 }).format(v)
 
   const totalSpent = useMemo(() => expenses.reduce((s, x) => s + (Number(x.total) || 0), 0), [expenses])
+  const budgetTotal = useMemo(
+    () => budgets.reduce((s, b) => {
+      const lt = Number(b.line_total) || ((Number(b.qty)||0) * (Number(b.unit_price)||0))
+      return s + lt
+    }, 0),
+    [budgets]
+  )
+  const remaining = useMemo(() => budgetTotal - totalSpent, [budgetTotal, totalSpent])
 
   /* ==================== Init ==================== */
-  useEffect(() => { init() }, [canManage]) // مهم: بعد ما الأدوار توصل
+  useEffect(() => { init() }, [canManage])
 
   async function init() {
     if (!canManage) { setLoading(false); return }
     setLoading(true)
     try {
       await loadEvents()
-      // Default dates = today
       const today = new Date(); const pad = (n:number)=>String(n).padStart(2,'0')
       const todayStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`
       setEvDate(todayStr)
@@ -150,11 +174,22 @@ export default function FinanceEvent() {
       notes: sanitizeForUI(e.notes)
     }))
     setEvents(cleaned)
-    if (cleaned.length && !selectedId) setSelectedId(cleaned[0].id)
-    if (cleaned.length === 0) { setSelectedId(''); setExpenses([]) }
+
+    if (cleaned.length === 0) {
+      setSelectedId('')
+      setExpenses([])
+      setBudgets([])
+    } else if (!cleaned.some(ev => ev.id === selectedId)) {
+      setSelectedId(cleaned[0].id)
+    }
   }
 
-  useEffect(() => { if (selectedId) loadExpenses(selectedId) }, [selectedId])
+  useEffect(() => {
+    if (selectedId) {
+      loadExpenses(selectedId)
+      loadBudgets(selectedId)
+    }
+  }, [selectedId])
 
   async function loadExpenses(eventId: string) {
     const { data, error } = await supabase
@@ -172,6 +207,25 @@ export default function FinanceEvent() {
       item_name: sanitizeForUI(r.item_name)
     }))
     setExpenses(fixed)
+  }
+
+  async function loadBudgets(eventId: string) {
+    const { data, error } = await supabase
+      .from('finance_event_budgets')
+      .select('id, item_name, qty, unit_price, line_total')
+      .eq('event_id', eventId)
+      .is('soft_deleted_at', null)
+      .order('id', { ascending: true })
+
+    if (error) { toast.error(error.message || 'تعذر تحميل بنود الميزانية'); return }
+    const rows = (data ?? []).map((r:any) => ({
+      id: r.id,
+      item_name: sanitizeForUI(r.item_name ?? ''),
+      qty: Number(r.qty) || 0,
+      unit_price: Number(r.unit_price) || 0,
+      line_total: Number(r.line_total) || ((Number(r.qty)||0) * (Number(r.unit_price)||0))
+    })) as EventBudget[]
+    setBudgets(rows)
   }
 
   /* ==================== Events CRUD ==================== */
@@ -232,18 +286,30 @@ export default function FinanceEvent() {
     if (!selectedId) return
     setDeletingEvent(true)
     try {
-      // احذف الحدث ناعماً
       const now = new Date().toISOString()
-      const { error } = await supabase
+
+      const { data, error } = await supabase
         .from('finance_events')
         .update({ soft_deleted_at: now })
         .eq('id', selectedId)
         .is('soft_deleted_at', null)
-      if (error) throw error
+        .select('id')
+        .limit(1)
 
-      // (اختياري) احذف مصروفاته ناعماً برضه للي ما تلحقوش تريجر الكاسكيد
+      if (error) throw error
+      if (!data || data.length === 0) {
+        toast.error('لم يتم حذف الحدث (لا توجد صلاحية أو تم حذفه مسبقًا).')
+        return
+      }
+
       await supabase
         .from('finance_event_expenses')
+        .update({ soft_deleted_at: now })
+        .eq('event_id', selectedId)
+        .is('soft_deleted_at', null)
+
+      await supabase
+        .from('finance_event_budgets')
         .update({ soft_deleted_at: now })
         .eq('event_id', selectedId)
         .is('soft_deleted_at', null)
@@ -358,8 +424,96 @@ export default function FinanceEvent() {
     }
   }
 
-  /* ==================== Export XLSX ==================== */
+  /* ==================== Budgets CRUD ==================== */
+  async function addBudgetLine() {
+    if (!selectedId) return toast.error('اختر حدثاً أولاً')
+    const q = Number(bQty), u = Number(bUnit)
+    if (!bTitle.trim()) return toast.error('ادخل اسم بند الميزانية')
+    if (!isFinite(q) || q <= 0) return toast.error('العدد غير صالح')
+    if (!isFinite(u) || u < 0) return toast.error('سعر الفرد غير صالح')
 
+    setSavingBudget(true)
+    try {
+      const line_total = q * u
+      const { error } = await supabase
+        .from('finance_event_budgets')
+        .insert({
+          event_id: selectedId,
+          item_name: stripMarks(bTitle.trim()),
+          qty: q,
+          unit_price: u,          // ← مهم: unit_price
+          line_total
+        })
+      if (error) throw error
+      setBTitle(''); setBQty(''); setBUnit('')
+      await loadBudgets(selectedId)
+      toast.success('تم إضافة بند الميزانية')
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر إضافة بند الميزانية')
+    } finally {
+      setSavingBudget(false)
+    }
+  }
+
+  function startEditBudgetRow(b: EventBudget) {
+    setEditingBudgetId(b.id)
+    setEditBTitle(b.item_name || '')
+    setEditBQty(Number(b.qty) || 0)
+    setEditBUnit(Number(b.unit_price) || 0)
+  }
+
+  async function saveEditBudgetRow() {
+    if (!editingBudgetId) return
+    const q = Number(editBQty), u = Number(editBUnit)
+    if (!editBTitle.trim()) return toast.error('ادخل اسم بند الميزانية')
+    if (!isFinite(q) || q <= 0) return toast.error('العدد غير صالح')
+    if (!isFinite(u) || u < 0) return toast.error('سعر الفرد غير صالح')
+
+    setSavingBudget(true)
+    try {
+      const line_total = q * u
+      const { error } = await supabase
+        .from('finance_event_budgets')
+        .update({
+          item_name: stripMarks(editBTitle.trim()),
+          qty: q,
+          unit_price: u,    // ← مهم
+          line_total
+        })
+        .eq('id', editingBudgetId)
+
+      if (error) throw error
+      setEditingBudgetId('')
+      await loadBudgets(selectedId)
+      toast.success('تم حفظ تعديل بند الميزانية')
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر حفظ التعديل')
+    } finally {
+      setSavingBudget(false)
+    }
+  }
+
+  async function deleteBudgetRow(id: string) {
+    if (!id) return
+    setDeletingBudgetId(id)
+    try {
+      const { error } = await supabase
+        .from('finance_event_budgets')
+        .update({ soft_deleted_at: new Date().toISOString() })
+        .eq('id', id)
+        .is('soft_deleted_at', null)
+
+      if (error) throw error
+      await loadBudgets(selectedId)
+      toast.success('تم حذف بند الميزانية')
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر حذف بند الميزانية')
+    } finally {
+      setDeletingBudgetId('')
+    }
+  }
+
+  /* ==================== Export XLSX (Expenses + Budgets) ==================== */
   function parseDate(d?: string) {
     if (!d) return ''
     const s = String(d).slice(0,10)
@@ -412,7 +566,6 @@ export default function FinanceEvent() {
       evs = []
     }
 
-    // sanitize
     evs = evs.map(e => ({
       ...e,
       name: sanitizeForUI(e.name),
@@ -420,19 +573,20 @@ export default function FinanceEvent() {
       notes: sanitizeForUI(e.notes)
     }))
 
-    // fetch expenses for those events
     const expensesByEvent = new Map<string, EventExpense[]>()
+    const budgetsByEvent = new Map<string, EventBudget[]>()
     const ids = evs.map(e => e.id)
+
     if (ids.length) {
-      const { data, error } = await supabase
+      const { data: expData, error: expErr } = await supabase
         .from('finance_event_expenses')
         .select('id, event_id, expense_date, item_name, qty, unit_price, total')
         .in('event_id', ids)
         .is('soft_deleted_at', null)
         .order('expense_date', { ascending: true })
         .order('id', { ascending: true })
-      if (error) throw error
-      for (const row of (data ?? [])) {
+      if (expErr) throw expErr
+      for (const row of (expData ?? [])) {
         const arr = expensesByEvent.get(row.event_id) || []
         arr.push({
           id: row.id,
@@ -440,12 +594,31 @@ export default function FinanceEvent() {
           item_name: sanitizeForUI(row.item_name),
           qty: Number(row.qty) || 0,
           unit_price: Number(row.unit_price) || 0,
-          total: Number(row.total) || (Number(row.qty||0) * Number(row.unit_price||0))
+          total: Number(row.total) || ((Number(row.qty)||0) * (Number(row.unit_price)||0))
         })
         expensesByEvent.set(row.event_id, arr)
       }
+
+      const { data: budData, error: budErr } = await supabase
+        .from('finance_event_budgets')
+        .select('id, event_id, item_name, qty, unit_price, line_total')
+        .in('event_id', ids)
+        .is('soft_deleted_at', null)
+        .order('id', { ascending: true })
+      if (budErr) throw budErr
+      for (const row of (budData ?? [])) {
+        const arr = budgetsByEvent.get(row.event_id) || []
+        arr.push({
+          id: row.id,
+          item_name: sanitizeForUI(row.item_name ?? ''),
+          qty: Number(row.qty) || 0,
+          unit_price: Number(row.unit_price) || 0,
+          line_total: Number(row.line_total) || ((Number(row.qty)||0) * (Number(row.unit_price)||0))
+        })
+        budgetsByEvent.set(row.event_id, arr)
+      }
     }
-    return { evs, expensesByEvent }
+    return { evs, expensesByEvent, budgetsByEvent }
   }
 
   async function handleExport() {
@@ -468,10 +641,9 @@ export default function FinanceEvent() {
         filename = `events_${exportYear}.xlsx`
       }
 
-      const { evs, expensesByEvent } = await fetchEventsData(filters)
+      const { evs, expensesByEvent, budgetsByEvent } = await fetchEventsData(filters)
       if (evs.length === 0) throw new Error('لا توجد أحداث للتصدير وفق الفلاتر')
 
-      // Workbook/Styles
       const wb = new ExcelJS.Workbook()
       const usedNames = new Set<string>()
       const headerFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFF59D' } }
@@ -482,29 +654,24 @@ export default function FinanceEvent() {
         right: { style: 'thin' as const, color: { argb: 'FFE0E0E0' } },
       }
 
-      function addHeader(ws: ExcelJS.Worksheet) {
+      function addHeader(ws: ExcelJS.Worksheet, headers: string[], widths: number[], numFmts: (string|undefined)[]) {
         ws.views = [{ state: 'frozen', ySplit: 1 }]
-        ws.columns = [
-          { key: 'expdate', width: 14, style: { numFmt: 'yyyy-mm-dd' } },
-          { key: 'item', width: 32 },
-          { key: 'qty', width: 10, style: { numFmt: '#,##0.00' } },
-          { key: 'unit', width: 14, style: { numFmt: '#,##0.00' } },
-          { key: 'line', width: 16, style: { numFmt: '#,##0.00' } },
-        ]
-        const hr = ws.addRow(['Expense Date','Item','Qty','Unit Price','Line Total'])
+        ws.columns = headers.map((_, i) => ({
+          key: `c${i}`, width: widths[i] || 14, style: numFmts[i] ? { numFmt: numFmts[i] } : {}
+        }))
+        const hr = ws.addRow(headers)
         hr.font = { bold: true }
         hr.alignment = { vertical: 'middle' }
         hr.height = 22
         hr.eachCell(c => { c.fill = headerFill; c.border = thinBorder })
       }
-
       function addDataRow(ws: ExcelJS.Worksheet, values: any[]) {
         const r = ws.addRow(values)
         r.eachCell(c => { c.border = thinBorder })
         return r
       }
 
-      // ترتيب الأحداث بالسنة/التاريخ/الاسم
+      // ترتيب الأحداث
       evs.sort((a,b) => {
         const ad = a.event_date || '', bd = b.event_date || ''
         if (ad !== bd) return ad.localeCompare(bd)
@@ -513,35 +680,78 @@ export default function FinanceEvent() {
 
       for (const ev of evs) {
         const datePart = (ev.event_date || '').slice(0,10)
-        const base = `${datePart} — ${ev.name || 'Event'}`
-        const wsName = ensureUniqueName(base, usedNames)
-        const ws = wb.addWorksheet(wsName)
 
-        addHeader(ws)
+        // Sheet المصروفات
+        {
+          const base = `${datePart} — ${ev.name || 'Event'}`
+          const wsName = ensureUniqueName(base, usedNames)
+          const ws = wb.addWorksheet(wsName)
 
-        const lines = (expensesByEvent.get(ev.id) || []).slice()
-        let total = 0
-        for (const l of lines) {
-          total += Number(l.total) || 0
-          const d = parseDate(l.expense_date)
-          const row = addDataRow(ws, [
-            d instanceof Date ? d : (l.expense_date || ''),
-            l.item_name || '',
-            Number(l.qty || 0),
-            Number(l.unit_price || 0),
-            Number(l.total || (Number(l.qty||0)*Number(l.unit_price||0))),
-          ])
-          if (d instanceof Date) row.getCell(1).numFmt = 'yyyy-mm-dd'
-          row.getCell(3).numFmt = '#,##0.00'
-          row.getCell(4).numFmt = '#,##0.00'
-          row.getCell(5).numFmt = '#,##0.00'
+          addHeader(
+            ws,
+            ['Expense Date','Item','Qty','Unit Price','Line Total'],
+            [14, 32, 10, 14, 16],
+            ['yyyy-mm-dd', undefined, '#,##0.00', '#,##0.00', '#,##0.00']
+          )
+
+          const lines = (expensesByEvent.get(ev.id) || []).slice()
+          let total = 0
+          for (const l of lines) {
+            total += Number(l.total) || 0
+            const d = parseDate(l.expense_date)
+            const row = addDataRow(ws, [
+              d instanceof Date ? d : (l.expense_date || ''),
+              l.item_name || '',
+              Number(l.qty || 0),
+              Number(l.unit_price || 0),
+              Number(l.total || ((Number(l.qty)||0)*(Number(l.unit_price)||0))),
+            ])
+            if (d instanceof Date) row.getCell(1).numFmt = 'yyyy-mm-dd'
+            row.getCell(3).numFmt = '#,##0.00'
+            row.getCell(4).numFmt = '#,##0.00'
+            row.getCell(5).numFmt = '#,##0.00'
+          }
+
+          if (lines.length === 0) {
+            addDataRow(ws, ['No data','','','',''])
+          } else {
+            const totalRow = addDataRow(ws, ['', 'TOTAL', '', '', total])
+            totalRow.font = { bold: true }
+          }
         }
 
-        if (lines.length === 0) {
-          addDataRow(ws, ['No data','','','',''])
-        } else {
-          const totalRow = addDataRow(ws, ['', 'TOTAL', '', '', total])
-          totalRow.font = { bold: true }
+        // Sheet الميزانية
+        {
+          const base = `Budget — ${datePart} — ${ev.name || 'Event'}`
+          const wsName = ensureUniqueName(base, usedNames)
+          const ws = wb.addWorksheet(wsName)
+
+          addHeader(
+            ws,
+            ['Item (Budget)', 'Qty', 'Unit Price', 'Line Total'],
+            [32, 12, 14, 16],
+            [undefined, '#,##0.00', '#,##0.00', '#,##0.00']
+          )
+
+          const rows = (budgetsByEvent.get(ev.id) || []).slice()
+          let sum = 0
+          for (const b of rows) {
+            const line = Number(b.line_total) || ((Number(b.qty)||0) * (Number(b.unit_price)||0))
+            sum += line
+            addDataRow(ws, [
+              b.item_name || '',
+              Number(b.qty || 0),
+              Number(b.unit_price || 0),
+              line
+            ])
+          }
+
+          if (rows.length === 0) {
+            addDataRow(ws, ['No budget','','',''])
+          } else {
+            const totalRow = addDataRow(ws, ['TOTAL', '', '', sum])
+            totalRow.font = { bold: true }
+          }
         }
       }
 
@@ -583,9 +793,9 @@ export default function FinanceEvent() {
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جارِ التحميل..." />
 
-      {/* ✅ الهيدر قابل للّف على الموبايل */}
+      {/* الهيدر */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-xl font-bold">تسجيل المصروفات العامة </h1>
+        <h1 className="text-xl font-bold">تسجيل المصروفات العامة</h1>
         {selectedId && (
           <button
             className="text-rose-600 hover:underline disabled:opacity-50 w-full sm:w-auto text-start sm:text-right"
@@ -612,7 +822,7 @@ export default function FinanceEvent() {
               </option>
             ))}
           </select>
-          <div className="text-xs text-gray-500">اختر حدثًا لاستعراض/تعديل مصروفاته.</div>
+          <div className="text-xs text-gray-500">اختر حدثًا لاستعراض/تعديل ميزانيته ومصروفاته.</div>
         </div>
 
         <div className="space-y-2">
@@ -620,7 +830,7 @@ export default function FinanceEvent() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 items-end">
             <div className="sm:col-span-2 md:col-span-2">
               <label className="text-xs">اسم الحدث</label>
-              <input className="border rounded-xl p-2 w-full min-w-0" value={evName} onChange={e=>setEvName(e.target.value)} placeholder="مثلاً: حفلة الوعد" />
+              <input className="border rounded-xl p-2 w-full min-w-0" value={evName} onChange={e=>setEvName(e.target.value)} placeholder="مثلاً: رحلة الفيوم" />
             </div>
             <div>
               <label className="text-xs">تاريخ الحدث</label>
@@ -641,10 +851,113 @@ export default function FinanceEvent() {
       {selectedId && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="p-4 rounded-2xl border">
-            <div className="text-xs text-gray-500">إجمالي المصروفات</div>
+            <div className="text-xs text-gray-500">إجمالي الميزانية</div>
+            <div className="text-2xl font-bold">{egp(budgetTotal)}</div>
+          </div>
+          <div className="p-4 rounded-2xl border">
+            <div className="text-xs text-gray-500">إجمالي المصروف</div>
             <div className="text-2xl font-bold">{egp(totalSpent)}</div>
           </div>
+          <div className={`p-4 rounded-2xl border ${remaining < 0 ? 'border-rose-400 bg-rose-50' : remaining <= budgetTotal*0.25 ? 'border-amber-400 bg-amber-50' : ''}`}>
+            <div className="text-xs text-gray-500">المتبقي (ميزانية - مصروف)</div>
+            <div className="text-2xl font-bold">{egp(remaining)}</div>
+            {remaining < 0 && <div className="text-xs text-rose-700 mt-1">تجاوزت الميزانية</div>}
+            {remaining >= 0 && budgetTotal > 0 && remaining <= 0.25*budgetTotal && <div className="text-xs text-amber-700 mt-1">تحذير: أقل من 25%</div>}
+          </div>
         </div>
+      )}
+
+      {/* Budget section */}
+      {selectedId && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">بنود الميزانية</h2>
+
+          {/* إضافة بند ميزانية */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
+            <div className="sm:col-span-2">
+              <label className="text-sm">العنصر</label>
+              <input className="border rounded-xl p-2 w-full min-w-0" value={bTitle} onChange={e=>setBTitle(e.target.value)} placeholder="مثلاً: مشترك الطلبة" />
+            </div>
+            <div>
+              <label className="text-sm">العدد</label>
+              <input type="number" min={1} className="border rounded-xl p-2 w-full min-w-0" value={bQty} onChange={e=>setBQty(e.target.value as any)} />
+            </div>
+            <div>
+              <label className="text-sm">سعر الفرد</label>
+              <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full min-w-0" value={bUnit} onChange={e=>setBUnit(e.target.value as any)} />
+            </div>
+            <div className="sm:col-span-2 md:col-span-5 flex justify-end">
+              <LoadingButton loading={savingBudget} onClick={addBudgetLine}>إضافة بند ميزانية</LoadingButton>
+            </div>
+          </div>
+
+          {/* جدول الميزانية */}
+          <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
+            <table className="w-full min-w-[760px] text-xs sm:text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-2 text-start">العنصر</th>
+                  <th className="p-2 text-center whitespace-nowrap">العدد</th>
+                  <th className="p-2 text-center whitespace-nowrap">سعر الفرد</th>
+                  <th className="p-2 text-center whitespace-nowrap">الإجمالي</th>
+                  <th className="p-2 text-center">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {budgets.map(b => {
+                  const isEdit = editingBudgetId === b.id
+                  const calcTotal = Number(b.qty||0) * Number(b.unit_price||0)
+                  return (
+                    <tr key={b.id} className="border-t">
+                      <td className="p-2">
+                        {isEdit ? (
+                          <input className="border rounded p-1 w-full min-w-0" value={editBTitle} onChange={e=>setEditBTitle(e.target.value)} />
+                        ) : sanitizeForUI(b.item_name)}
+                      </td>
+                      <td className="p-2 text-center">
+                        {isEdit ? (
+                          <input type="number" min={1} className="border rounded p-1 w-full sm:w-24 text-center"
+                                 value={editBQty} onChange={e=>setEditBQty(e.target.value as any)} />
+                        ) : Number(b.qty)}
+                      </td>
+                      <td className="p-2 text-center">
+                        {isEdit ? (
+                          <input type="number" min={0} step={0.01} className="border rounded p-1 w-full sm:w-28 text-center"
+                                 value={editBUnit} onChange={e=>setEditBUnit(e.target.value as any)} />
+                        ) : egp(Number(b.unit_price || 0))}
+                      </td>
+                      <td className="p-2 text-center">{egp(Number(b.line_total || calcTotal))}</td>
+                      <td className="p-2 text-center">
+                        {!isEdit ? (
+                          <div className="flex gap-2 justify-center">
+                            <button className="text-blue-600 hover:underline" onClick={()=>startEditBudgetRow(b)}>تعديل</button>
+                            <button
+                              className="text-rose-600 hover:underline disabled:opacity-50"
+                              onClick={()=>deleteBudgetRow(b.id)}
+                              disabled={deletingBudgetId === b.id}
+                            >
+                              {deletingBudgetId === b.id ? 'جارِ الحذف...' : 'حذف'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 justify-center">
+                            <button className="text-green-600 hover:underline disabled:opacity-50" onClick={saveEditBudgetRow} disabled={savingBudget}>حفظ</button>
+                            <button className="text-gray-600 hover:underline" onClick={()=>setEditingBudgetId('')}>إلغاء</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {budgets.length === 0 && (
+                  <tr>
+                    <td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد بنود ميزانية لهذا الحدث</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {/* Add expense */}
@@ -762,8 +1075,8 @@ export default function FinanceEvent() {
                 value={exportMode}
                 onChange={e=>setExportMode(e.target.value as any)}
               >
-                <option value="one">حدث محدد</option>
-                <option value="year">سنة كاملة — ورقة لكل حدث</option>
+                <option value="one">حدث محدد (مصروفات + ميزانية)</option>
+                <option value="year">سنة كاملة — ورقتان لكل حدث</option>
               </select>
             </div>
 
@@ -805,7 +1118,7 @@ export default function FinanceEvent() {
           </div>
 
           <div className="text-xs text-gray-500">
-            * في وضع السنة: كل حدث في Sheet منفصل داخل نفس الملف. الهيدر أصفر، كل الصفوف بحدود رفيعة، ويوجد صف إجمالي في نهاية كل حدث.
+            * يتم إنشاء ورقتين لكل حدث: واحدة للمصروفات وواحدة لبنود الميزانية، مع صف إجمالي في النهاية.
           </div>
         </section>
       )}
