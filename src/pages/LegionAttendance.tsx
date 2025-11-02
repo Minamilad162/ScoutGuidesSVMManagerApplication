@@ -24,7 +24,10 @@ type DayStatus = {
   excuse_note?: string
 }
 
-type StatsSort = 'name' | 'most' | 'least' // ⬅️ جديد: ترتيب الإحصائيات
+type StatsSort = 'name' | 'most' | 'least'
+
+// ⬇️ جديد: جدول تواريخ الترم
+type TermDateRow = { id: string; meeting_date: string }
 
 export default function LegionAttendance() {
   const toast = useToast()
@@ -50,8 +53,11 @@ export default function LegionAttendance() {
   const [dayType, setDayType] = useState<'meeting' | 'preparation'>('meeting')
   const [dayStatus, setDayStatus] = useState<Record<string, DayStatus>>({})
 
-  // ⬅️ جديد: ترتيب الإحصائيات
+  // ⬅️ ترتيب الإحصائيات
   const [statsSort, setStatsSort] = useState<StatsSort>('name')
+
+  // ⬇️ جديد: تواريخ الترم المختار
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
 
   useEffect(() => { init() }, [])
   async function init() {
@@ -77,6 +83,7 @@ export default function LegionAttendance() {
       if (me2) throw me2
       setMembers((ms as any) ?? [])
 
+      // افتراضيًا خلّي يوم اليوم
       const now = new Date()
       const pad = (n:number)=>String(n).padStart(2,'0')
       const d = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
@@ -86,6 +93,30 @@ export default function LegionAttendance() {
       toast.error(e.message || 'تعذر التحميل')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // تحميل تواريخ الترم المختار (للاستخدام في حقل التاريخ عند Meeting)
+  useEffect(() => { if (termId) loadTermDates(termId) }, [termId])
+  async function loadTermDates(tid: string) {
+    try {
+      const { data, error } = await supabase
+        .from('term_meeting_dates')
+        .select('id, meeting_date')
+        .eq('term_id', tid)
+        .order('meeting_date', { ascending: true })
+      if (error) throw error
+      const list = (data as any as TermDateRow[]) ?? []
+      setTermDates(list)
+
+      // لو النوع اجتماع: لو التاريخ الحالي مش ضمن القائمة خليه أول تاريخ متاح
+      if ((kind === 'equipiers' || dayType === 'meeting')) {
+        if (!list.find(d => d.meeting_date === dayDate)) {
+          setDayDate(list[0]?.meeting_date || '')
+        }
+      }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل تواريخ الترم')
     }
   }
 
@@ -115,7 +146,21 @@ export default function LegionAttendance() {
     }
   }
 
-  useEffect(() => { if (teamId && dayDate && dayType) refreshDay() }, [teamId, dayDate, dayType, kind])
+  // لو اختار Equipiers: ثبّت النوع Meeting (زي ما كان موجود) + وفّق التاريخ مع قائمة الترم
+  useEffect(() => {
+    if (kind === 'equipiers' && dayType !== 'meeting') {
+      setDayType('meeting')
+    }
+    if (kind === 'equipiers' || dayType === 'meeting') {
+      // لو التاريخ الحالي مش ضمن تواريخ الترم، اختَر أول تاريخ
+      if (termDates.length && !termDates.find(d => d.meeting_date === dayDate)) {
+        setDayDate(termDates[0].meeting_date)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, dayType, termDates])
+
+  useEffect(() => { if (teamId && dayDate && (dayType || kind)) refreshDay() }, [teamId, dayDate, dayType, kind])
   async function refreshDay() {
     try {
       if (kind === 'equipiers' && dayType !== 'meeting') setDayType('meeting')
@@ -179,7 +224,6 @@ export default function LegionAttendance() {
       }
     })
 
-    // ⬅️ ترتيب الإحصائيات
     if (statsSort === 'most') {
       arr.sort((a,b)=> (b.pct - a.pct) || (b.present - a.present) || a.name.localeCompare(b.name, 'ar'))
     } else if (statsSort === 'least') {
@@ -321,7 +365,25 @@ export default function LegionAttendance() {
         <div className="grid md:grid-cols-5 gap-2 items-end">
           <div>
             <label className="text-sm">التاريخ</label>
-            <input type="date" className="border rounded-xl p-2 w-full" value={dayDate} onChange={e=>setDayDate(e.target.value)} />
+            {(kind === 'equipiers' || dayType === 'meeting') ? (
+              <select
+                className="border rounded-xl p-2 w-full cursor-pointer"
+                value={dayDate}
+                onChange={e=>setDayDate(e.target.value)}
+              >
+                {termDates.length === 0 && <option value="">— لا توجد تواريخ —</option>}
+                {termDates.map(d => (
+                  <option key={d.id} value={d.meeting_date}>{d.meeting_date}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="date"
+                className="border rounded-xl p-2 w-full"
+                value={dayDate}
+                onChange={e=>setDayDate(e.target.value)}
+              />
+            )}
           </div>
           <div>
             <label className="text-sm">نوع اليوم</label>
@@ -399,7 +461,6 @@ export default function LegionAttendance() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">الإحصائيات</h2>
 
-        {/* ⬅️ جديد: أدوات ترتيب الإحصائيات */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="text-sm text-gray-600">رتّب النتائج</div>
           <div>
@@ -415,7 +476,6 @@ export default function LegionAttendance() {
           </div>
         </div>
 
-        {/* جدول الإحصائيات */}
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
             <table className="table-auto w-full min-w-[880px] text-sm">
