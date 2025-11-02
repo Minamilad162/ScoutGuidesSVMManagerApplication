@@ -520,6 +520,84 @@ export default function TeamFinance() {
     }
   }
 
+  /* ===================== NEW: Edit / Delete state & handlers ===================== */
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<{ expense_date: string; item_name: string; qty: number | ''; unit_price: number | '' } | null>(null)
+  const [savingEditId, setSavingEditId] = useState<string | null>(null)
+  const [deletingId,   setDeletingId]   = useState<string | null>(null)
+
+  const canModify = (teamId && gate.canWriteExpense(teamId)) || isAdmin || isGlobalFinance
+
+  function startEditRow(x: Expense) {
+    setEditingId(x.id)
+    setEditDraft({
+      expense_date: (x.expense_date || '').slice(0,10),
+      item_name: x.item_name || '',
+      qty: Number(x.qty) || 0,
+      unit_price: Number(x.unit_price) || 0
+    })
+  }
+  function cancelEditRow() {
+    setEditingId(null)
+    setEditDraft(null)
+  }
+
+  async function saveEditRow(id: string) {
+    if (!editDraft) return
+    const q = Number(editDraft.qty)
+    const u = Number(editDraft.unit_price)
+    const d = (editDraft.expense_date || '').trim()
+    if (!isFinite(q) || q <= 0) return toast.error('العدد غير صالح')
+    if (!isFinite(u) || u < 0) return toast.error('سعر القطعة غير صالح')
+    if (!d) return toast.error('اختر التاريخ')
+    if (!editDraft.item_name.trim()) return toast.error('ادخل اسم المنتج')
+
+    // تأكيد  داخل نطاق الترم
+    const clamped = clampToTerm(d)
+    if ((termMin || termMax) && clamped !== d) {
+      return toast.error('التاريخ خارج نطاق الترم المحدد')
+    }
+
+    setSavingEditId(id)
+    try {
+      const payload = {
+        expense_date: stripMarks(d),
+        item_name: stripMarks(editDraft.item_name.trim()),
+        qty: q,
+        unit_price: u,
+        total: q * u
+      }
+      const { error } = await supabase.from('expenses').update(payload).eq('id', id)
+      if (error) throw error
+      toast.success('تم حفظ التعديل')
+      cancelEditRow()
+      await refreshData()
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر حفظ التعديل')
+    } finally {
+      setSavingEditId(null)
+    }
+  }
+
+  async function deleteRow(id: string) {
+    if (!canModify) return
+    if (!confirm('هل أنت متأكد من حذف هذا المصروف؟')) return
+    setDeletingId(id)
+    try {
+      const { error } = await supabase.from('expenses')
+        .update({ soft_deleted_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) throw error
+      toast.success('تم حذف المصروف')
+      await refreshData()
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر حذف المصروف')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+  /* ============================================================================ */
+
   return (
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري تحميل البيانات..." />
@@ -707,7 +785,7 @@ export default function TeamFinance() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">المصروفات</h2>
         <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
-          <table className="w-full min-w-[720px] text-xs sm:text-sm">
+          <table className="w-full min-w-[880px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start whitespace-nowrap">التاريخ</th>
@@ -715,19 +793,107 @@ export default function TeamFinance() {
                 <th className="p-2 text-center whitespace-nowrap">العدد</th>
                 <th className="p-2 text-center whitespace-nowrap">سعر القطعة</th>
                 <th className="p-2 text-center whitespace-nowrap">الإجمالي</th>
+                <th className="p-2 text-center whitespace-nowrap">إجراءات</th>{/* NEW */}
               </tr>
             </thead>
             <tbody>
-              {expenses.map(x => (
-                <tr key={x.id} className="border-t">
-                  <td className="p-2">{sanitizeForUI(x.expense_date)}</td>
-                  <td className="p-2">{sanitizeForUI(x.item_name)}</td>
-                  <td className="p-2 text-center">{x.qty}</td>
-                  <td className="p-2 text-center">{egp(Number(x.unit_price))}</td>
-                  <td className="p-2 text-center">{egp(Number(x.total))}</td>
-                </tr>
-              ))}
-              {expenses.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد مصروفات</td></tr>}
+              {expenses.map(x => {
+                const isEditing = editingId === x.id
+                const totalDisp = egp(Number(isEditing ? (Number(editDraft?.qty||0) * Number(editDraft?.unit_price||0)) : x.total))
+                return (
+                  <tr key={x.id} className="border-t">
+                    <td className="p-2">
+                      {!isEditing ? (
+                        sanitizeForUI(x.expense_date)
+                      ) : (
+                        <input
+                          type="date"
+                          className="border rounded-xl p-1"
+                          value={editDraft?.expense_date ?? (x.expense_date || '').slice(0,10)}
+                          min={termMin || undefined}
+                          max={termMax || undefined}
+                          onChange={e => setEditDraft(d => d ? { ...d, expense_date: e.target.value } :
+                            { expense_date: e.target.value, item_name: x.item_name, qty: x.qty, unit_price: x.unit_price })}
+                        />
+                      )}
+                    </td>
+
+                    <td className="p-2">
+                      {!isEditing ? (
+                        sanitizeForUI(x.item_name)
+                      ) : (
+                        <input
+                          className="border rounded-xl p-1 w-full"
+                          value={editDraft?.item_name ?? x.item_name}
+                          onChange={e => setEditDraft(d => d ? { ...d, item_name: e.target.value } :
+                            { expense_date: (x.expense_date||'').slice(0,10), item_name: e.target.value, qty: x.qty, unit_price: x.unit_price })}
+                        />
+                      )}
+                    </td>
+
+                    <td className="p-2 text-center">
+                      {!isEditing ? (
+                        x.qty
+                      ) : (
+                        <input
+                          type="number"
+                          min={1}
+                          className="border rounded-xl p-1 w-24 text-center"
+                          value={editDraft?.qty ?? x.qty}
+                          onChange={e => setEditDraft(d => d ? { ...d, qty: e.target.value as any } :
+                            { expense_date: (x.expense_date||'').slice(0,10), item_name: x.item_name, qty: e.target.value as any, unit_price: x.unit_price })}
+                        />
+                      )}
+                    </td>
+
+                    <td className="p-2 text-center">
+                      {!isEditing ? (
+                        egp(Number(x.unit_price))
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className="border rounded-xl p-1 w-28 text-center"
+                          value={editDraft?.unit_price ?? x.unit_price}
+                          onChange={e => setEditDraft(d => d ? { ...d, unit_price: e.target.value as any } :
+                            { expense_date: (x.expense_date||'').slice(0,10), item_name: x.item_name, qty: x.qty, unit_price: e.target.value as any })}
+                        />
+                      )}
+                    </td>
+
+                    <td className="p-2 text-center">{totalDisp}</td>
+
+                    <td className="p-2 text-center">
+                      {!canModify ? (
+                        <span className="text-gray-400 text-xs">—</span>
+                      ) : !isEditing ? (
+                        <div className="flex items-center justify-center gap-2">
+                          {/* <button className="btn border" onClick={()=>startEditRow(x)}>تعديل</button> */}
+                          <button
+                            className="btn border"
+                            disabled={deletingId===x.id}
+                            onClick={()=>deleteRow(x.id)}
+                          >
+                            {deletingId===x.id ? '...' : 'حذف'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2">
+                          <LoadingButton
+                            loading={savingEditId===x.id}
+                            onClick={()=>saveEditRow(x.id)}
+                          >
+                            حفظ
+                          </LoadingButton>
+                          <button className="btn border" onClick={cancelEditRow}>إلغاء</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+              {expenses.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={6}>لا توجد مصروفات</td></tr>}
             </tbody>
           </table>
         </div>
