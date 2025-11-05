@@ -185,7 +185,7 @@ export default function AdminSecretary() {
   return (
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
-      <h1 className="text-xl font-bold">السيكرتارية — عرض وإدارة (أدمن/مسؤول عام)</h1>
+      <h1 className="text-xl font-bold">سيكرتارية المجموعة</h1>
 
       {/* فلاتر أعلى الصفحة — مرنة */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
@@ -205,7 +205,7 @@ export default function AdminSecretary() {
 
       {/* القادة */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold">القادة (Chefs)</h2>
+        <h2 className="text-lg font-semibold">الشفات</h2>
         <div
           className="rounded-2xl border overflow-x-auto"
           dir="ltr"
@@ -214,19 +214,19 @@ export default function AdminSecretary() {
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 text-start">الاسم</th>
-                <th className="p-2 text-start">الرتبة</th>
-                <th className="p-2 text-start">المسؤوليات</th>
-                <th className="p-2 text-start whitespace-nowrap">الهاتف</th>
+                                <th className="p-2 whitespace-nowrap text-center">الهاتف</th>
+                <th className="p-2 text-center">المسؤوليات</th>
+                <th className="p-2 text-center">الرتبة</th>
+                <th className="p-2 text-center">الاسم</th>
               </tr>
             </thead>
             <tbody>
               {chefs.map(m => (
                 <tr key={m.id} className="border-t">
-                  <td className="p-2 break-words">{m.full_name}</td>
-                  <td className="p-2">{m.rank?.rank_label || '—'}</td>
-                  <td className="p-2">{roleChip(m)}</td>
-                  <td className="p-2 whitespace-nowrap">{m.personal_phone || '—'}</td>
+                  <td className="p-2 whitespace-nowrap text-center">{m.personal_phone || '—'}</td>
+                  <td className="p-2 text-center">{roleChip(m)}</td>
+                  <td className="p-2 text-center">{m.rank?.rank_label || '—'}</td>
+                  <td className="p-2 text-center break-words">{m.full_name}</td>
                 </tr>
               ))}
               {chefs.length === 0 && (
@@ -248,14 +248,14 @@ export default function AdminSecretary() {
           <table className="w-full min-w-[1000px] text-sm">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 text-start">الاسم</th>
-                <th className="p-2 text-start">ولي الأمر</th>
-                <th className="p-2 text-start whitespace-nowrap">هاتف ولي الأمر</th>
-                <th className="p-2 text-start whitespace-nowrap">تاريخ الميلاد</th>
-                <th className="p-2 text-center whitespace-nowrap">حضور الاجتماعات</th>
-                <th className="p-2 text-center whitespace-nowrap">الغياب (بعذر/بدون)</th>
+                                <th className="p-2 text-center">حذف</th>
                 <th className="p-2 text-center">حفظ</th>
-                <th className="p-2 text-center">حذف</th>
+                <th className="p-2 text-center whitespace-nowrap">الغياب (بعذر/بدون)</th>
+                <th className="p-2 text-center whitespace-nowrap">حضور الاجتماعات</th>
+                <th className="p-2 text-start whitespace-nowrap">تاريخ الميلاد</th>
+                <th className="p-2 text-start whitespace-nowrap">هاتف ولي الأمر</th>
+                <th className="p-2 text-start">ولي الأمر</th>
+                <th className="p-2 text-start">الاسم</th>
               </tr>
             </thead>
             <tbody>
@@ -264,28 +264,26 @@ export default function AdminSecretary() {
                 const e = edit[m.id] || {}
                 return (
                   <tr key={m.id} className="border-t align-top">
-                    <td className="p-2 align-top">
-                      <input
-                        className="border rounded-xl p-1 w-full"
-                        defaultValue={m.full_name}
-                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], full_name: ev.target.value}}))}
-                      />
+
+                    <td className="p-2 text-center align-top">
+                      <button className="btn border" disabled={deletingId===m.id} onClick={()=>deleteEquipier(m)}>
+                        {deletingId===m.id?'...':'حذف'}
+                      </button>
                     </td>
-                    <td className="p-2 align-top">
-                      <input
-                        className="border rounded-xl p-1 w-full"
-                        defaultValue={m.guardian_name || ''}
-                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_name: ev.target.value}}))}
-                      />
+
+  <td className="p-2 text-center align-top">
+                      <LoadingButton loading={savingId===m.id} onClick={()=>saveEquipier(m)}>حفظ</LoadingButton>
                     </td>
-                    <td className="p-2 align-top">
-                      <input
-                        className="border rounded-xl p-1 w-full"
-                        defaultValue={m.guardian_phone || ''}
-                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_phone: ev.target.value}}))}
-                      />
+
+                     <td className="p-2 text-center align-top">
+                      <span className="px-2 py-1 rounded-full bg-white border text-xs">{a.absent_excused} / {a.absent_unexcused}</span>
                     </td>
-                    <td className="p-2 align-top">
+
+  <td className="p-2 text-center align-top">
+                      <span className="px-2 py-1 rounded-full bg-white border text-xs">{a.present} من {a.total}</span>
+                    </td>
+
+   <td className="p-2 align-top">
                       <input
                         type="date"
                         className="border rounded-xl p-1 w-full"
@@ -293,20 +291,37 @@ export default function AdminSecretary() {
                         onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], birth_date: ev.target.value}}))}
                       />
                     </td>
-                    <td className="p-2 text-center align-top">
-                      <span className="px-2 py-1 rounded-full bg-white border text-xs">{a.present} من {a.total}</span>
+
+                      <td className="p-2 align-top">
+                      <input
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.guardian_phone || ''}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_phone: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2 text-center align-top">
-                      <span className="px-2 py-1 rounded-full bg-white border text-xs">{a.absent_excused} / {a.absent_unexcused}</span>
+
+                        <td className="p-2 align-top">
+                      <input
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.guardian_name || ''}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], guardian_name: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2 text-center align-top">
-                      <LoadingButton loading={savingId===m.id} onClick={()=>saveEquipier(m)}>حفظ</LoadingButton>
+
+                    <td className="p-2 align-top">
+                      <input
+                        className="border rounded-xl p-1 w-full"
+                        defaultValue={m.full_name}
+                        onChange={ev=>setEdit(p=>({...p, [m.id]: {...p[m.id], full_name: ev.target.value}}))}
+                      />
                     </td>
-                    <td className="p-2 text-center align-top">
-                      <button className="btn border" disabled={deletingId===m.id} onClick={()=>deleteEquipier(m)}>
-                        {deletingId===m.id?'...':'حذف'}
-                      </button>
-                    </td>
+                
+                  
+                 
+                  
+                   
+                  
+                   
                   </tr>
                 )
               })}
