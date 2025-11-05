@@ -556,11 +556,11 @@ export default function TeamSecretary() {
               <input type="date" className="border rounded-xl p-2 w-full min-w-0" value={newDOB} onChange={e=>setNewDOB(e.target.value)} />
             </div>
 
-            <div className="sm:col-span-2 md:col-span-2">
-              <label className="text-sm">صورة شخصية (اختياري)</label>
-              <input type="file" className="block w-full text-sm" accept="image/*" onChange={e=>setNewAvatar(e.target.files?.[0] ?? null)} />
-              {newAvatar && <div className="text-xs text-gray-500 mt-1">الحجم: {(newAvatar.size/1024/1024).toFixed(2)} MB</div>}
-            </div>
+              {/* <div className="sm:col-span-2 md:col-span-2">
+                <label className="text-sm">صورة شخصية (اختياري)</label>
+                <input type="file" className="block w-full text-sm" accept="image/*" onChange={e=>setNewAvatar(e.target.files?.[0] ?? null)} />
+                {newAvatar && <div className="text-xs text-gray-500 mt-1">الحجم: {(newAvatar.size/1024/1024).toFixed(2)} MB</div>}
+              </div> */}
 
             <div className="sm:col-span-2 md:col-span-5 text-end">
               <LoadingButton loading={false} onClick={addEquipier}>إضافة</LoadingButton>
