@@ -6,15 +6,26 @@ import { useToast } from '../components/ui/Toaster'
 import { useRoleGate } from '../hooks/useRoleGate'
 import { useAuth } from '../components/AuthProvider'
 
+// ===== Types =====
 type Team = { id: string; name: string }
 type Material = { id: string; name: string; total_qty: number }
-type Resv = { id: string; material_id: string; team_id: string; qty: number; starts_at: string; ends_at: string; }
+type Resv = { id: string; material_id: string; team_id: string; qty: number; starts_at: string; ends_at: string }
 
-// ⬅️ الترْم + تواريخه
+// لعرض حجوزات نفس اليوم لكل الفرق (بأسماء الفرق والأدوات)
+type DayRow = {
+  id: string
+  qty: number
+  starts_at: string
+  ends_at: string
+  teams: { name: string | null } | null
+  materials: { name: string | null } | null
+}
+
+// الترم + تواريخه
 type Term = { id: string; name: string; year: number; start_date: string | null; end_date: string | null }
-type TermDateRow = { id: string; meeting_date: string } // بصيغة YYYY-MM-DD
+type TermDateRow = { id: string; meeting_date: string } // YYYY-MM-DD
 
-// ⬅️ تحويل Local "YYYY-MM-DDTHH:MM" إلى ISO UTC بشكل آمن
+// ===== Helpers =====
 function localDateTimeToISOString(dtLocal: string): string {
   if (!dtLocal || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dtLocal)) {
     const d = new Date(dtLocal)
@@ -31,24 +42,25 @@ function toLocalInput(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function combineDateTime(day: string, timeHHmm: string) {
-  // day = YYYY-MM-DD, time = HH:MM
-  return `${day}T${timeHHmm}`
-}
+function combineDateTime(day: string, timeHHmm: string) { return `${day}T${timeHHmm}` }
 
-function timePart(dt: string) {
-  const m = dt.match(/T(\d{2}:\d{2})/)
-  return m ? m[1] : '00:00'
-}
+function timePart(dt: string) { const m = dt.match(/T(\d{2}:\d{2})/); return m ? m[1] : '00:00' }
 
-// ⬅️ هل الحجز يتقاطع مع يوم معيّن (محسوب محليًا)؟
+// هل الحجز يتقاطع مع يوم معيّن (محليًا)؟
 function overlapsDay(isoStart: string, isoEnd: string, dayYYYYMMDD: string) {
   const [y, m, d] = dayYYYYMMDD.split('-').map(Number)
-  const dayStart = new Date(y, m - 1, d, 0, 0, 0, 0)        // محلي 00:00
-  const dayEnd   = new Date(y, m - 1, d, 23, 59, 59, 999)   // محلي 23:59:59
-  const s = new Date(isoStart) // من الUTC -> JavaScript هيحوّلها تلقائيًا لزمن محلي في المقارنة
+  const dayStart = new Date(y, m - 1, d, 0, 0, 0, 0)
+  const dayEnd   = new Date(y, m - 1, d, 23, 59, 59, 999)
+  const s = new Date(isoStart)
   const e = new Date(isoEnd)
   return e >= dayStart && s <= dayEnd
+}
+
+// حدود اليوم (محلي → ISO) لاستخدامها في الاستعلام من القاعدة
+function getDayBoundsISO(ymd: string) {
+  const start = new Date(ymd + 'T00:00:00')
+  const end   = new Date(ymd + 'T23:59:59')
+  return { startISO: start.toISOString(), endISO: end.toISOString() }
 }
 
 export default function MaterialsTeamReservations() {
@@ -64,7 +76,7 @@ export default function MaterialsTeamReservations() {
   const [matId, setMatId] = useState<string>('')
   const [qty, setQty] = useState<number | ''>('')
 
-  // ✅ التاريخ/الوقت
+  // التاريخ/الوقت للحجز الجاري
   const [startAt, setStartAt] = useState<string>('') // YYYY-MM-DDTHH:MM
   const [endAt, setEndAt] = useState<string>('')
 
@@ -72,16 +84,15 @@ export default function MaterialsTeamReservations() {
   const [list, setList] = useState<Resv[]>([])
   const isAdmin = roles.some(r => r.role_slug === 'admin')
 
-  // ✅ الترم وتواريخه (نفس الفكرة)
+  // الترم وتواريخه
   const [terms, setTerms] = useState<Term[]>([])
   const [termId, setTermId] = useState<string>('')
-
   const [termDates, setTermDates] = useState<TermDateRow[]>([])
   const hasTermDates = termDates.length > 0
 
-  // عند اختيار من تواريخ الترم: نستخدم Select لليوم + time فقط
+  // اختيار اليوم (من الترم أو custom)
   const [useCustomDay, setUseCustomDay] = useState<boolean>(false)
-  const [selectedDay, setSelectedDay] = useState<string>('') // YYYY-MM-DD (سواء من الترم أو custom)
+  const [selectedDay, setSelectedDay] = useState<string>('') // YYYY-MM-DD
   const [startTime, setStartTime] = useState<string>('16:00') // HH:MM
   const [endTime, setEndTime] = useState<string>('18:00')     // HH:MM
 
@@ -115,6 +126,7 @@ export default function MaterialsTeamReservations() {
       if (tm && tm.length) setTermId(tm[0].id)
 
       // الفريق الافتراضي
+      const isAdmin = roles.some(r => r.role_slug === 'admin')
       if (isAdmin) {
         if (ts && ts.length) setTeamId(ts[0].id)
       } else {
@@ -154,14 +166,12 @@ export default function MaterialsTeamReservations() {
       setTermDates(list)
 
       if (list.length > 0) {
-        // اختيار أول يوم افتراضيًا، ونركّب start/end
         const d = list[0].meeting_date
         setSelectedDay(d)
         setUseCustomDay(false)
         setStartAt(combineDateTime(d, startTime))
         setEndAt(combineDateTime(d, endTime))
       } else {
-        // مافيش تواريخ — نرجع للوضع custom
         setUseCustomDay(true)
       }
     } catch (e:any) {
@@ -169,7 +179,7 @@ export default function MaterialsTeamReservations() {
     }
   }
 
-  // تحديث قائمة حجوزات الفريق
+  // تحديث قائمة حجوزات الفريق (كل حجوزات الفريق)
   useEffect(() => { if (teamId) refreshList() }, [teamId])
   async function refreshList() {
     try {
@@ -205,30 +215,20 @@ export default function MaterialsTeamReservations() {
     }
   }
 
-  // ✅ تغيير يوم الترم المختار
+  // تغيير يوم الترم المختار
   function onTermDayChange(v: string) {
-    if (v === '__custom__') {
-      setUseCustomDay(true)
-      return
-    }
+    if (v === '__custom__') { setUseCustomDay(true); return }
     setUseCustomDay(false)
     setSelectedDay(v)
-    // ركب start/end بناءً على الأوقات المختارة
     setStartAt(combineDateTime(v, startTime))
     setEndAt(combineDateTime(v, endTime))
   }
 
-  // ✅ تغيير أوقات اليوم (mode = term-day)
-  function onStartTimeChange(t: string) {
-    setStartTime(t)
-    setStartAt(combineDateTime(selectedDay, t))
-  }
-  function onEndTimeChange(t: string) {
-    setEndTime(t)
-    setEndAt(combineDateTime(selectedDay, t))
-  }
+  // تغيير أوقات اليوم (وضع term-day)
+  function onStartTimeChange(t: string) { setStartTime(t); setStartAt(combineDateTime(selectedDay, t)) }
+  function onEndTimeChange(t: string)   { setEndTime(t);   setEndAt(combineDateTime(selectedDay, t)) }
 
-  // ✅ فاليديشن: البداية قبل النهاية + (لو متاح) ضمن نطاق الترم
+  // فاليديشن المدى
   function validateRange(): string | null {
     const s = new Date(startAt)
     const e = new Date(endAt)
@@ -251,8 +251,7 @@ export default function MaterialsTeamReservations() {
     const q = Number(qty); if (!isFinite(q) || q <= 0) return toast.error('الكمية غير صالحة')
     if (!startAt || !endAt) return toast.error('حدد وقت البداية والنهاية')
 
-    const err = validateRange()
-    if (err) return toast.error(err)
+    const err = validateRange(); if (err) return toast.error(err)
 
     setSaving(true)
     try {
@@ -267,6 +266,7 @@ export default function MaterialsTeamReservations() {
       toast.success('تم الحجز')
       setQty('')
       await refreshList()
+      await refreshDayReservations() // ← حدّث جدول "كل الفرق في هذا اليوم"
     } catch (e:any) {
       toast.error(e.message || 'تعذر الحجز (قد تكون الكمية غير متاحة)')
     } finally {
@@ -276,12 +276,14 @@ export default function MaterialsTeamReservations() {
 
   async function cancelReservation(id: string) {
     try {
-      const { error } = await supabase.from('material_reservations')
+      const { error } = await supabase
+        .from('material_reservations')
         .update({ soft_deleted_at: new Date().toISOString() })
         .eq('id', id)
       if (error) throw error
       toast.success('تم إلغاء الحجز')
       await refreshList()
+      await refreshDayReservations()
     } catch (e:any) {
       toast.error(e.message || 'تعذر الإلغاء')
     }
@@ -299,20 +301,48 @@ export default function MaterialsTeamReservations() {
   }
 
   const matMap = useMemo(() => new Map(materials.map(m => [m.id, m])), [materials])
+  const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams])
   const canBook = gate.canBookReservations(teamId)
 
-  // ✅ اليوم الفعّال للفلترة
+  // اليوم المُفعّل للفلترة
   const effectiveFilterDay = useMemo(() => {
     if (hasTermDates && !useCustomDay && selectedDay) return selectedDay
-    if (startAt) return startAt.slice(0, 10) // من بداية وقت الـcustom
+    if (startAt) return startAt.slice(0, 10)
     return ''
   }, [hasTermDates, useCustomDay, selectedDay, startAt])
 
-  // ✅ فلترة الجدول بحسب اليوم (أي حجز يتقاطع مع نفس اليوم)
+  // فلترة جدول الفريق بحسب اليوم
   const listFiltered = useMemo(() => {
     if (!effectiveFilterDay) return list
     return list.filter(r => overlapsDay(r.starts_at, r.ends_at, effectiveFilterDay))
   }, [list, effectiveFilterDay])
+
+  // ===== جدول "كل الفرق" في اليوم المختار =====
+  const [dayRows, setDayRows] = useState<DayRow[]>([])
+  const [dayLoading, setDayLoading] = useState(false)
+
+  useEffect(() => { if (effectiveFilterDay) refreshDayReservations(); else setDayRows([]) }, [effectiveFilterDay])
+
+  async function refreshDayReservations() {
+    if (!effectiveFilterDay) { setDayRows([]); return }
+    setDayLoading(true)
+    try {
+      const { startISO, endISO } = getDayBoundsISO(effectiveFilterDay)
+      const { data, error } = await supabase
+        .from('material_reservations')
+        .select('id, qty, starts_at, ends_at, teams:team_id(name), materials:material_id(name)')
+        .is('soft_deleted_at', null)
+        .lt('starts_at', endISO)
+        .gt('ends_at', startISO)
+        .order('starts_at', { ascending: true })
+      if (error) throw error
+      setDayRows((data as any as DayRow[]) ?? [])
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل حجوزات هذا اليوم')
+    } finally {
+      setDayLoading(false)
+    }
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -337,7 +367,7 @@ export default function MaterialsTeamReservations() {
           </select>
         </div>
 
-        {/* ⬅️ اختيار الترم للتواريخ */}
+        {/* اختيار الترم للتواريخ */}
         <div className="md:col-span-2">
           <label className="text-sm">الترم (لاختيار تواريخ جاهزة)</label>
           <select className="border rounded-xl p-2 w-full cursor-pointer" value={termId} onChange={e=>setTermId(e.target.value)}>
@@ -349,9 +379,9 @@ export default function MaterialsTeamReservations() {
         </div>
       </div>
 
-      {/* نموذج الحجز — نفس فكرة تواريخ الترم */}
+      {/* نموذج الحجز */}
       <div className="grid md:grid-cols-6 gap-3 items-end">
-        {/* التاريخ/اليوم */}
+        {/* اليوم */}
         <div className="md:col-span-2">
           <label className="text-sm">اليوم</label>
           {hasTermDates && !useCustomDay ? (
@@ -366,18 +396,16 @@ export default function MaterialsTeamReservations() {
                 ))}
                 <option value="__custom__">— تاريخ آخر —</option>
               </select>
-              <div className="text-[11px] text-gray-500 mt-1">اختر تاريخًا من جدول الترم أو اختر “تاريخ آخر”.</div>
+              <div className="text-[11px] text-gray-500 mt-1">اختر من جدول الترم أو اختر “تاريخ آخر”.</div>
             </>
           ) : (
             <>
-              {/* وضع custom: نرجّع datetime-local كاملة كالسابق، ولكن ضمن حدود الترم لو متاحة */}
+              {/* وضع custom */}
               <input
                 type="datetime-local"
                 className="border rounded-xl p-2 w-full"
                 value={startAt}
-                onChange={e=>{
-                  setStartAt(e.target.value)
-                }}
+                onChange={e=>{ setStartAt(e.target.value) }}
                 min={termMinDT}
                 max={termMaxDT}
               />
@@ -403,26 +431,16 @@ export default function MaterialsTeamReservations() {
           )}
         </div>
 
-        {/* الأوقات (في وضع term-day: time فقط / في custom: datetime-local للنهاية فقط هنا) */}
+        {/* الأوقات */}
         {hasTermDates && !useCustomDay ? (
           <>
             <div>
               <label className="text-sm">من (الوقت)</label>
-              <input
-                type="time"
-                className="border rounded-xl p-2 w-full"
-                value={startTime}
-                onChange={e=>onStartTimeChange(e.target.value)}
-              />
+              <input type="time" className="border rounded-xl p-2 w-full" value={startTime} onChange={e=>onStartTimeChange(e.target.value)} />
             </div>
             <div>
               <label className="text-sm">إلى (الوقت)</label>
-              <input
-                type="time"
-                className="border rounded-xl p-2 w-full"
-                value={endTime}
-                onChange={e=>onEndTimeChange(e.target.value)}
-              />
+              <input type="time" className="border rounded-xl p-2 w-full" value={endTime} onChange={e=>onEndTimeChange(e.target.value)} />
             </div>
           </>
         ) : (
@@ -445,13 +463,7 @@ export default function MaterialsTeamReservations() {
         {/* الكمية */}
         <div>
           <label className="text-sm">العدد</label>
-          <input
-            type="number"
-            min={1}
-            className="border rounded-xl p-2 w-full"
-            value={qty}
-            onChange={e=>setQty(e.target.value as any)}
-          />
+          <input type="number" min={1} className="border rounded-xl p-2 w-full" value={qty} onChange={e=>setQty(e.target.value as any)} />
           {available !== null && <div className="text-xs mt-1">المتاح: <b>{available}</b></div>}
         </div>
 
@@ -464,45 +476,34 @@ export default function MaterialsTeamReservations() {
         </div>
       </div>
 
-      {/* شارة اليوم المُفعّل للفلترة */}
+      {/* شارة اليوم المُفعّل */}
       {effectiveFilterDay && (
-        <div className="text-xs text-gray-600">
-          يتم عرض حجوزات يوم: <b>{effectiveFilterDay}</b>
-        </div>
+        <div className="text-xs text-gray-600">يتم عرض حجوزات يوم: <b>{effectiveFilterDay}</b></div>
       )}
 
-      {/* جدول الحجوزات */}
+      {/* جدول حجوزات الفريق (مصفى على اليوم المختار) */}
       <div className="rounded-2xl border">
         <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
           <table className="table-auto w-full min-w-[720px] text-sm">
             <thead className="bg-gray-100">
               <tr>
-                                <th className="p-2"></th>
+                <th className="p-2"></th>
                 <th className="p-2 text-start">إلى</th>
                 <th className="p-2 text-start">من</th>
                 <th className="p-2 text-center">العدد</th>
                 <th className="p-2 text-start">الأداة</th>
-
               </tr>
             </thead>
             <tbody>
               {listFiltered.map(r => (
                 <tr key={r.id} className="border-t">
-                  {/* <td className="p-2">{matMap.get(r.material_id)?.name || '—'}</td>
-                  <td className="p-2 text-center">{r.qty}</td>
-                  <td className="p-2">{fmtTime12(r.starts_at, true)}</td>
-                  <td className="p-2">{fmtTime12(r.ends_at, true)}</td>
-                   */}
                   <td className="p-2 text-end">
                     <button className="btn border text-xs w-full md:w-auto" onClick={()=>cancelReservation(r.id)}>إلغاء</button>
                   </td>
-                 <td className="p-2">{fmtTime12(r.ends_at, true)}</td>
+                  <td className="p-2">{fmtTime12(r.ends_at, true)}</td>
                   <td className="p-2">{fmtTime12(r.starts_at, true)}</td>
                   <td className="p-2 text-center">{r.qty}</td>
                   <td className="p-2">{matMap.get(r.material_id)?.name || '—'}</td>
-
-
-
                 </tr>
               ))}
               {listFiltered.length === 0 && (
@@ -512,6 +513,45 @@ export default function MaterialsTeamReservations() {
           </table>
         </div>
       </div>
+
+      {/* ===== جدول حجوزات كل الفرق في التاريخ المختار ===== */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">حجوزات جميع الفرق — تاريخ: {effectiveFilterDay || '—'}</h2>
+          {dayLoading && <span className="text-sm text-gray-500">جاري التحميل…</span>}
+        </div>
+        <div className="rounded-2xl border">
+          <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
+            <table className="table-auto w-full min-w-[800px] text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                                    <th className="p-2 text-center">إلى</th>
+                  <th className="p-2 text-center">من</th>
+                  <th className="p-2 text-center">العدد</th>
+                  <th className="p-2 text-center">الأداة</th>
+
+                  <th className="p-2 text-center">الفريق</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dayRows.map(r => (
+                  <tr key={r.id} className="border-t">
+                                        <td className="p-2 text-center">{fmtTime12(r.ends_at, true)}</td>
+                    <td className="p-2 text-center">{fmtTime12(r.starts_at, true)}</td>
+                    <td className="p-2 text-center">{r.qty}</td>
+                    <td className="p-2 text-center">{r.materials?.name || '—'}</td>
+
+                    <td className="p-2 text-center">{r.teams?.name || '—'}</td>
+                  </tr>
+                ))}
+                {(!dayLoading && dayRows.length === 0) && (
+                  <tr><td className="p-3 text-center text-gray-500" colSpan={5}>لا توجد حجوزات في هذا التاريخ</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
