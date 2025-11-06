@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/ui/Toaster'
 import { PageLoader } from '../components/ui/PageLoader'
@@ -7,10 +7,28 @@ import { useRoleGate } from '../hooks/useRoleGate'
 import { useAuth } from '../components/AuthProvider'
 import FieldMaps from '../components/FieldMaps'
 
+// ===== Types =====
 type Team = { id: string; name: string }
 type Zone = { id: string; name: string }
 type Term = { id: string; name: string; year: number; start_date: string | null; end_date: string | null }
 type TermDateRow = { id: string; meeting_date: string } // YYYY-MM-DD
+
+// حجوزات اليوم المختار (لكل الفرق)
+type DayRow = {
+  id: string
+  starts_at: string
+  ends_at: string
+  field_zones: { name: string | null } | null
+  teams: { name: string | null } | null
+}
+
+// حجوزات الفريق في اليوم المختار فقط
+type TeamRow = {
+  id: string
+  starts_at: string
+  ends_at: string
+  field_zones: { name: string | null } | null
+}
 
 // ===== Helpers =====
 function pad2(n: number) { return String(n).padStart(2, '0') }
@@ -35,6 +53,12 @@ function withinRange(d: string, start?: string | null, end?: string | null) {
   if (!start || !end) return true
   return d >= start && d <= end
 }
+// حدود اليوم المختار (محلي → ISO)
+function getDayBoundsISO(ymd: string) {
+  const start = new Date(ymd + 'T00:00:00')
+  const end   = new Date(ymd + 'T23:59:59')
+  return { startISO: start.toISOString(), endISO: end.toISOString() }
+}
 
 export default function FieldReservationsTeam() {
   const toast = useToast()
@@ -47,7 +71,8 @@ export default function FieldReservationsTeam() {
   const [canceling, setCanceling] = useState<string | null>(null)
 
   const [teams, setTeams] = useState<Team[]>([])
-  const [teamId, setTeamId] = useState<string>(''); const [teamName, setTeamName] = useState<string>('')
+  const [teamId, setTeamId] = useState<string>('')
+  const [teamName, setTeamName] = useState<string>('')
 
   const [zones, setZones] = useState<Zone[]>([])
 
@@ -63,7 +88,15 @@ export default function FieldReservationsTeam() {
   const [endTime, setEndTime] = useState<string>('18:00')     // HH:MM
   const [zoneId, setZoneId] = useState<string>('')
 
-  const [rows, setRows] = useState<any[]>([])
+  // حجوزات الفريق (لليوم المختار فقط)
+  const [rows, setRows] = useState<TeamRow[]>([])
+
+  // ==== حجوزات كل الفرق في التاريخ المختار ====
+  const [dayRows, setDayRows] = useState<DayRow[]>([])
+  const [dayLoading, setDayLoading] = useState(false)
+
+  // ==== حجوزات الفريق في التاريخ المختار ====
+  const [teamDayLoading, setTeamDayLoading] = useState(false)
 
   // ===== Init =====
   useEffect(() => { init() }, [])
@@ -71,22 +104,40 @@ export default function FieldReservationsTeam() {
     setLoading(true)
     try {
       // Zones
-      const { data: z, error: ze } = await supabase.from('field_zones').select('id,name').eq('active', true).order('name')
+      const { data: z, error: ze } = await supabase
+        .from('field_zones')
+        .select('id,name')
+        .eq('active', true)
+        .order('name')
       if (ze) throw ze
-      setZones((z as any) ?? []); if (z && z.length) setZoneId(z[0].id)
+      setZones((z as any) ?? [])
+      if (z && z.length) setZoneId(z[0].id)
 
       // Teams (حسب الصلاحية)
       if (isAdmin) {
-        const { data: ts, error: te } = await supabase.from('teams').select('id,name').order('name')
+        const { data: ts, error: te } = await supabase
+          .from('teams')
+          .select('id,name')
+          .order('name')
         if (te) throw te
         setTeams((ts as any) ?? [])
-        if (ts && ts.length) { setTeamId(ts[0].id); setTeamName(ts[0].name) }
+        if (ts && ts.length) {
+          setTeamId(ts[0].id)
+          setTeamName(ts[0].name)
+        }
       } else {
-        const { data: me, error: meErr } = await supabase.from('v_me').select('team_id').maybeSingle()
+        const { data: me, error: meErr } = await supabase
+          .from('v_me')
+          .select('team_id')
+          .maybeSingle()
         if (meErr) throw meErr
         if (!me?.team_id) throw new Error('لا يوجد فريق مرتبط بحسابك')
         setTeamId(me.team_id)
-        const { data: t, error: te2 } = await supabase.from('teams').select('name').eq('id', me.team_id).maybeSingle()
+        const { data: t, error: te2 } = await supabase
+          .from('teams')
+          .select('name')
+          .eq('id', me.team_id)
+          .maybeSingle()
         if (te2) throw te2
         setTeamName(t?.name || '—')
       }
@@ -113,21 +164,6 @@ export default function FieldReservationsTeam() {
     } finally {
       setLoading(false)
     }
-  }
-
-  // لما يختار فريق — نزّل حجوزاته
-  useEffect(() => { if (teamId) refresh() }, [teamId])
-  async function refresh() {
-    try {
-      const { data, error } = await supabase
-        .from('field_reservations')
-        .select('id, starts_at, ends_at, field_zones:field_zone_id(name)')
-        .eq('team_id', teamId)
-        .is('soft_deleted_at', null)
-        .order('starts_at', { ascending: true })
-      if (error) throw error
-      setRows((data as any) ?? [])
-    } catch (e: any) { toast.error(e.message || 'تعذر تحميل الحجوزات') }
   }
 
   // تحميل تواريخ الترم المختار
@@ -161,8 +197,57 @@ export default function FieldReservationsTeam() {
     } else {
       if (!meetingDate) setMeetingDate(todayYMD())
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mtype, termDates])
+
+  // ===== حجوزات كل الفرق في التاريخ المختار =====
+  useEffect(() => { if (meetingDate) refreshDayReservations() }, [meetingDate])
+
+  async function refreshDayReservations() {
+    if (!meetingDate) { setDayRows([]); return }
+    setDayLoading(true)
+    try {
+      const { startISO, endISO } = getDayBoundsISO(meetingDate)
+      const { data, error } = await supabase
+        .from('field_reservations')
+        .select('id, starts_at, ends_at, field_zones:field_zone_id(name), teams:team_id(name)')
+        .is('soft_deleted_at', null)
+        .lt('starts_at', endISO)
+        .gt('ends_at', startISO)
+        .order('starts_at', { ascending: true })
+      if (error) throw error
+      setDayRows((data as any as DayRow[]) ?? [])
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر تحميل حجوزات هذا التاريخ')
+    } finally {
+      setDayLoading(false)
+    }
+  }
+
+  // ==== حجوزات الفريق لليوم المختار (تصفية بالتاريخ) ====
+  useEffect(() => { if (teamId && meetingDate) refreshTeamDayReservations() }, [teamId, meetingDate])
+
+  async function refreshTeamDayReservations() {
+    if (!teamId || !meetingDate) { setRows([]); return }
+    setTeamDayLoading(true)
+    try {
+      const { startISO, endISO } = getDayBoundsISO(meetingDate)
+      const { data, error } = await supabase
+        .from('field_reservations')
+        .select('id, starts_at, ends_at, field_zones:field_zone_id(name)')
+        .eq('team_id', teamId)
+        .is('soft_deleted_at', null)
+        .lt('starts_at', endISO)   // يبدأ قبل نهاية اليوم
+        .gt('ends_at', startISO)   // وينتهي بعد بداية اليوم → overlap
+        .order('starts_at', { ascending: true })
+      if (error) throw error
+      setRows((data as any as TeamRow[]) ?? [])
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر تحميل حجوزات الفريق لهذا التاريخ')
+    } finally {
+      setTeamDayLoading(false)
+    }
+  }
 
   // ===== Actions =====
   async function save() {
@@ -225,7 +310,8 @@ export default function FieldReservationsTeam() {
         throw ie
       }
       toast.success('تم الحجز')
-      await refresh()
+      await refreshTeamDayReservations()
+      await refreshDayReservations() // ← تحدّث جدول “حجوزات هذا التاريخ”
     } catch (e: any) {
       toast.error(e.message || 'تعذر الحجز')
     } finally {
@@ -236,11 +322,17 @@ export default function FieldReservationsTeam() {
   async function cancel(id: string) {
     setCanceling(id)
     try {
-      const { error } = await supabase.from('field_reservations').update({ soft_deleted_at: new Date().toISOString() }).eq('id', id)
+      const { error } = await supabase
+        .from('field_reservations')
+        .update({ soft_deleted_at: new Date().toISOString() })
+        .eq('id', id)
       if (error) throw error
-      toast.success('تم إلغاء الحجز'); await refresh()
-    } catch (e: any) { toast.error(e.message || 'تعذر الإلغاء') }
-    finally { setCanceling(null) }
+      toast.success('تم إلغاء الحجز')
+      await refreshTeamDayReservations()
+      await refreshDayReservations() // ← تحدّث جدول “حجوزات هذا التاريخ”
+    } catch (e: any) {
+      toast.error(e.message || 'تعذر الإلغاء')
+    } finally { setCanceling(null) }
   }
 
   // ===== UI =====
@@ -263,10 +355,18 @@ export default function FieldReservationsTeam() {
       ) : (
         <div className="mb-3">
           <label className="text-sm">الفريق</label>
-          <select className="border rounded-xl p-2 w-full cursor-pointer" value={teamId} onChange={e=>{
-            const id = e.target.value; setTeamId(id); const t = teams.find(x=>x.id===id); setTeamName(t?.name || '')
-          }}>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          <select
+            className="border rounded-xl p-2 w-full cursor-pointer"
+            value={teamId}
+            onChange={e => {
+              const id = e.target.value
+              setTeamId(id)
+              const t = teams.find(x => x.id === id)
+              setTeamName(t?.name || '')
+            }}>
+            {teams.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
           </select>
         </div>
       )}
@@ -277,12 +377,12 @@ export default function FieldReservationsTeam() {
           <div className="md:col-span-2">
             <label className="text-sm">نوع اليوم</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={mtype} onChange={e=>setMtype(e.target.value as any)}>
-            {/** <option value="preparation">تحضير (تاريخ حر)</option> */}
+              {/* <option value="preparation">تحضير (تاريخ حر)</option> */}
               <option value="meeting">اجتماع (من تواريخ الترم)</option>
             </select>
           </div>
 
-          {/* اختيار الترم (مفيد خصوصًا لـ Meeting) */}
+          {/* اختيار الترم */}
           <div className="md:col-span-2">
             <label className="text-sm">الترم</label>
             <select className="border rounded-xl p-2 w-full cursor-pointer" value={selTerm} onChange={e=>setSelTerm(e.target.value)}>
@@ -294,7 +394,7 @@ export default function FieldReservationsTeam() {
             </select>
           </div>
 
-          {/* تاريخ الاجتماع: Meeting = select من تواريخ الترم | Preparation = input date */}
+          {/* تاريخ الاجتماع */}
           <div className="md:col-span-2">
             <label className="text-sm">تاريخ الاجتماع</label>
             {mtype === 'meeting' ? (
@@ -326,7 +426,7 @@ export default function FieldReservationsTeam() {
             </select>
           </div>
 
-          {/* الأوقات: وقت فقط (اليوم من meetingDate) */}
+          {/* الأوقات */}
           <div className="md:col-span-1">
             <label className="text-sm">من (الساعة)</label>
             <input
@@ -352,8 +452,12 @@ export default function FieldReservationsTeam() {
         </div>
       </div>
 
+      {/* حجوزات الفريق (مصفاة على التاريخ المختار) */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">حجوزات الفريق</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">حجوزات الفريق — تاريخ: {meetingDate || '—'}</h2>
+          {teamDayLoading && <span className="text-sm text-gray-500">جاري التحميل…</span>}
+        </div>
         <div className="border rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
@@ -376,7 +480,42 @@ export default function FieldReservationsTeam() {
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={4}>لا توجد حجوزات</td></tr>}
+              {(!teamDayLoading && rows.length === 0) && (
+                <tr><td className="p-3 text-center text-gray-500" colSpan={4}>لا توجد حجوزات لهذا التاريخ</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ===== الحجوزات في التاريخ المختار (لكل الفرق) ===== */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">حجوزات كل الفرق — تاريخ: {meetingDate || '—'}</h2>
+          {dayLoading && <span className="text-sm text-gray-500">جاري التحميل…</span>}
+        </div>
+        <div className="border rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 text-start">القطاع</th>
+                <th className="p-2 text-start">من</th>
+                <th className="p-2 text-start">إلى</th>
+                <th className="p-2 text-start">الفريق</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dayRows.map(r => (
+                <tr key={r.id} className="border-t">
+                  <td className="p-2">{r.field_zones?.name || '—'}</td>
+                  <td className="p-2">{new Date(r.starts_at).toLocaleString()}</td>
+                  <td className="p-2">{new Date(r.ends_at).toLocaleString()}</td>
+                  <td className="p-2">{r.teams?.name || '—'}</td>
+                </tr>
+              ))}
+              {(!dayLoading && dayRows.length === 0) && (
+                <tr><td className="p-3 text-center text-gray-500" colSpan={4}>لا توجد حجوزات في هذا التاريخ</td></tr>
+              )}
             </tbody>
           </table>
         </div>
