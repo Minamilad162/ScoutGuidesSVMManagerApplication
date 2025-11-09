@@ -196,6 +196,7 @@ export default function App() {
             <Route path="AdminDashboard" element={<AdminDashboard />} />
             <Route path="storage" element={<StorageInventory />} />
             <Route path="TeamCases" element={<TeamCases/>} />
+            <Route path="TeamStatistics" element={<TeamStatistics/>} />
 
 
             <Route path="/app/AdminEvalQuestions" element={<AdminEvalQuestions />} />
