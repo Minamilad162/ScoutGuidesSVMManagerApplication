@@ -1,5 +1,5 @@
 // src/pages/TeamSecretaryAttendance.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
 import { useToast } from '../components/ui/Toaster'
@@ -10,6 +10,8 @@ type Team = { id: string; name: string }
 type Term = { id: string; name: string; year: number; start_date: string|null; end_date: string|null }
 type Equipier = { id: string; full_name: string }
 type Counts = { present: number; total: number; absent_excused: number; absent_unexcused: number }
+
+type TermDateRow = { id: string; meeting_date: string } // YYYY-MM-DD
 
 export default function TeamSecretaryAttendance() {
   const toast = useToast()
@@ -27,38 +29,77 @@ export default function TeamSecretaryAttendance() {
   const [terms, setTerms] = useState<Term[]>([])
   const [termId, setTermId] = useState<string>('')
 
+  // ✅ تواريخ الترم
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
+  const hasTermDates = termDates.length > 0
+  const [useCustomDay, setUseCustomDay] = useState<boolean>(false)
+
   const [list, setList] = useState<Equipier[]>([])
   const [meetingDate, setMeetingDate] = useState<string>('')
   const [checks, setChecks] = useState<Record<string, boolean>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [counts, setCounts] = useState<Record<string, Counts>>({})
 
+  const termMeta = useMemo(() => terms.find(t => t.id === termId) || null, [terms, termId])
+
   useEffect(() => { init() }, [])
   async function init() {
     setLoading(true)
     try {
-      const { data: tm } = await supabase.from('terms').select('id,name,year,start_date,end_date').order('year', { ascending: false }).order('name', { ascending: true })
+      const { data: tm, error: terr } = await supabase
+        .from('terms')
+        .select('id,name,year,start_date,end_date')
+        .order('year', { ascending: false })
+        .order('name', { ascending: true })
+      if (terr) throw terr
       setTerms(tm ?? [])
       if (tm && tm.length) setTermId(tm[0].id)
 
       if (isAdmin || isGlobalSec) {
-        const { data: ts } = await supabase.from('teams').select('id,name').order('name')
+        const { data: ts, error: tErr } = await supabase.from('teams').select('id,name').order('name')
+        if (tErr) throw tErr
         setTeams(ts ?? [])
         if (ts && ts.length) { setTeamId(ts[0].id); setTeamName(ts[0].name) }
       } else {
-        const { data: me } = await supabase.from('v_me').select('team_id').maybeSingle()
+        const { data: me, error: meErr } = await supabase.from('v_me').select('team_id').maybeSingle()
+        if (meErr) throw meErr
         if (!me?.team_id) throw new Error('لا يوجد فريق مرتبط بحسابك')
         setTeamId(me.team_id)
         const { data: t } = await supabase.from('teams').select('name').eq('id', me.team_id).maybeSingle()
         setTeamName(t?.name || '—')
       }
 
+      // تاريخ افتراضي (اليوم)
       const now = new Date(); const pad=(n:number)=>String(n).padStart(2,'0')
       const d = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
       setMeetingDate(d)
     } catch (e:any) {
       toast.error(e.message || 'تعذر التحميل')
     } finally { setLoading(false) }
+  }
+
+  // ✅ تحميل تواريخ الترم المختار
+  useEffect(() => { if (termId) loadTermDates(termId) }, [termId])
+  async function loadTermDates(tid: string) {
+    try {
+      const { data, error } = await supabase
+        .from('term_meeting_dates')
+        .select('id, meeting_date')
+        .eq('term_id', tid)
+        .order('meeting_date', { ascending: true })
+      if (error) throw error
+      const list = (data as TermDateRow[]) ?? []
+      setTermDates(list)
+      if (list.length > 0) {
+        setUseCustomDay(false)
+        setMeetingDate(list[0].meeting_date)
+        await loadMeetingAttendanceForDate(list[0].meeting_date)
+      } else {
+        setUseCustomDay(true)
+      }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل تواريخ الترم')
+    }
   }
 
   useEffect(() => { if (teamId) refreshList() }, [teamId])
@@ -81,7 +122,7 @@ export default function TeamSecretaryAttendance() {
     }
   }
 
-  // ===== NEW: احسب من الـView =====
+  // ===== احصاءات الترم من الView (مع fallback) =====
   async function refreshCounts() {
     try {
       if (!teamId || !termId) { setCounts({}); return }
@@ -102,7 +143,6 @@ export default function TeamSecretaryAttendance() {
       })
       setCounts(map)
     } catch (e:any) {
-      // fallback القديم لو الView مش موجود
       await refreshCountsFallback()
     }
   }
@@ -163,7 +203,7 @@ export default function TeamSecretaryAttendance() {
         r[a.member_id] = a.is_present ? '' : (a.absence_reason || '')
       })
       setChecks(c); setReasons(r)
-    } catch {}
+    } catch {/* silent */}
   }
 
   async function saveAttendance() {
@@ -236,16 +276,55 @@ export default function TeamSecretaryAttendance() {
         </div>
         <div>
           <label className="text-sm">تاريخ الاجتماع</label>
-          <input
-            type="date"
-            className="border rounded-xl p-2 w-full min-w-0"
-            value={meetingDate}
-            onChange={async e=>{
-              const v = e.target.value
-              setMeetingDate(v)
-              await loadMeetingAttendanceForDate(v)
-            }}
-          />
+          {hasTermDates && !useCustomDay ? (
+            <>
+              <select
+                className="border rounded-xl p-2 w-full min-w-0 cursor-pointer"
+                value={meetingDate}
+                onChange={async e=>{
+                  const v = e.target.value
+                  if (v === '__custom__') { setUseCustomDay(true); return }
+                  setMeetingDate(v)
+                  await loadMeetingAttendanceForDate(v)
+                }}
+              >
+                {termDates.map(d => (
+                  <option key={d.id} value={d.meeting_date}>{d.meeting_date}</option>
+                ))}
+                <option value="__custom__">— تاريخ آخر —</option>
+              </select>
+              <div className="text-[11px] text-gray-500 mt-1">اختر من جدول الترم أو اختر "تاريخ آخر".</div>
+            </>
+          ) : (
+            <>
+              <input
+                type="date"
+                className="border rounded-xl p-2 w-full min-w-0"
+                value={meetingDate}
+                onChange={async e=>{
+                  const v = e.target.value
+                  setMeetingDate(v)
+                  await loadMeetingAttendanceForDate(v)
+                }}
+                min={termMeta?.start_date ?? undefined}
+                max={termMeta?.end_date ?? undefined}
+              />
+              {hasTermDates && (
+                <button
+                  type="button"
+                  className="text-[12px] underline mt-1"
+                  onClick={()=>{
+                    if (termDates.length){
+                      setUseCustomDay(false)
+                      const d = termDates[0].meeting_date
+                      setMeetingDate(d)
+                      loadMeetingAttendanceForDate(d)
+                    }
+                  }}
+                >الرجوع لاختيار من جدول الترم</button>
+              )}
+            </>
+          )}
         </div>
         <div className="text-end">
           <LoadingButton loading={saving} onClick={saveAttendance}>حفظ الحضور</LoadingButton>
