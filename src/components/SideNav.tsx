@@ -300,3 +300,4 @@ export default function SideNav({ onNavigate }: Props) {
     </aside>
   )
 }
+
