@@ -150,6 +150,7 @@ export default function SideNav({ onNavigate }: Props) {
       if (has('chef_de_legion')) {
         pushUnique(res, '/app/LegionEvaluations', 'تقييم فريقي')
         pushUnique(res, '/app/TeamCases', 'ملاحظات الفريق')
+        pushUnique(res, 'TeamStatistics', 'إحصائيات الفريق')
 
         
         pushUnique(res, '/app/LegionAttendance', 'غياب فريقي')
@@ -193,7 +194,8 @@ export default function SideNav({ onNavigate }: Props) {
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
         pushUnique(res, '/app/TeamSecretaryAttendance', 'غياب فريقي') 
                 pushUnique(res, '/app/TeamCases', 'ملاحظات الفريق')
-       
+               pushUnique(res, 'TeamStatistics', 'إحصائيات الفريق')
+
       }
     }
 
