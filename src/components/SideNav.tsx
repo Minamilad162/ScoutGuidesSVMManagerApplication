@@ -149,10 +149,13 @@ export default function SideNav({ onNavigate }: Props) {
     } else {
       if (has('chef_de_legion')) {
         pushUnique(res, '/app/LegionEvaluations', 'تقييم فريقي')
+        pushUnique(res, '/app/TeamCases', 'ملاحظات الفريق')
+
+        
         pushUnique(res, '/app/LegionAttendance', 'غياب فريقي')
         pushUnique(res, '/app/FieldReservationsTeam', 'حجز الارض')
         pushUnique(res, '/app/TeamFinance', 'ميزانية الفريق')
-                      pushUnique(res, '/app/MaterialTeamReservation', 'حجز الأدوات' )
+       pushUnique(res, '/app/MaterialTeamReservation', 'حجز الأدوات' )
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
         pushUnique(res, '/app/ChefsEvaluationOverview', 'التقييم النهائى ')
       }
@@ -184,9 +187,13 @@ export default function SideNav({ onNavigate }: Props) {
       if (isGlobalSecretary) {
         pushUnique(res, '/app/AdminSecretary', 'إدارة السكرتارية')
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
+        pushUnique(res, '/app/TeamSecretaryAttendance', 'غياب فريقي') 
+
       } else if (hasTeamSecretary) {
         pushUnique(res, '/app/TeamSecretary', 'سكرتارية فريقي')
-        pushUnique(res, '/app/TeamSecretaryAttendance', 'غياب فريقي')        
+        pushUnique(res, '/app/TeamSecretaryAttendance', 'غياب فريقي') 
+                pushUnique(res, '/app/TeamCases', 'ملاحظات الفريق')
+       
       }
     }
 
