@@ -38,6 +38,7 @@ import ChefsEvaluationOverview from './pages/ChefsEvaluationOverview'
 import AdminDashboard from './pages/AdminDashboard'
 import StorageInventory from './pages/StorageInventory'
 import TeamCases from './pages/TeamCases'
+import TeamStatistics from './pages/TeamStatistics'
 
 
 
