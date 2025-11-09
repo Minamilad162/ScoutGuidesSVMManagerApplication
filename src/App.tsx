@@ -37,6 +37,13 @@ import MaterialsReturnApprove from './pages/MaterialsReturnApprove'
 import ChefsEvaluationOverview from './pages/ChefsEvaluationOverview'
 import AdminDashboard from './pages/AdminDashboard'
 import StorageInventory from './pages/StorageInventory'
+import TeamCases from './pages/TeamCases'
+
+
+
+
+
+
 
 // ======= Helpers for Push =======
 function urlBase64ToUint8Array(base64String: string) {
@@ -188,6 +195,8 @@ export default function App() {
             <Route path="MaterialsReturnApprove" element={<MaterialsReturnApprove />} />
             <Route path="AdminDashboard" element={<AdminDashboard />} />
             <Route path="storage" element={<StorageInventory />} />
+            <Route path="TeamCases" element={<TeamCases/>} />
+
 
             <Route path="/app/AdminEvalQuestions" element={<AdminEvalQuestions />} />
             <Route path="/app/AdminFinance" element={<AdminFinance />} />
