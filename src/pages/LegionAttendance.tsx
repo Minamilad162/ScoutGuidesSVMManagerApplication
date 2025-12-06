@@ -1,3 +1,4 @@
+// src/pages/LegionAttendance.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
@@ -25,8 +26,6 @@ type DayStatus = {
 }
 
 type StatsSort = 'name' | 'most' | 'least'
-
-// ⬇️ جديد: جدول تواريخ الترم
 type TermDateRow = { id: string; meeting_date: string }
 
 export default function LegionAttendance() {
@@ -53,11 +52,20 @@ export default function LegionAttendance() {
   const [dayType, setDayType] = useState<'meeting' | 'preparation'>('meeting')
   const [dayStatus, setDayStatus] = useState<Record<string, DayStatus>>({})
 
-  // ⬅️ ترتيب الإحصائيات
+  // ترتيب الإحصائيات
   const [statsSort, setStatsSort] = useState<StatsSort>('name')
 
-  // ⬇️ جديد: تواريخ الترم المختار
+  // تواريخ الترم (لـ meeting للإكويبـيـرز)
   const [termDates, setTermDates] = useState<TermDateRow[]>([])
+
+  // فلاتر التحليل بحسب نوع اليوم وتاريخ من meetings الفعلية
+  const [analysisType, setAnalysisType] = useState<'all' | 'meeting' | 'preparation'>('all')
+  const [filterDate, setFilterDate] = useState<string>('') // YYYY-MM-DD
+  const [meetingDates, setMeetingDates] = useState<string[]>([])     // meetings (meeting)
+  const [preparationDates, setPreparationDates] = useState<string[]>([]) // meetings (preparation)
+
+  // جديد: إضافة تاريخ تحضير سريع
+  const [newPrepDate, setNewPrepDate] = useState<string>('')
 
   useEffect(() => { init() }, [])
   async function init() {
@@ -83,7 +91,7 @@ export default function LegionAttendance() {
       if (me2) throw me2
       setMembers((ms as any) ?? [])
 
-      // افتراضيًا خلّي يوم اليوم
+      // افتراضيًا اليوم
       const now = new Date()
       const pad = (n:number)=>String(n).padStart(2,'0')
       const d = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`
@@ -96,7 +104,7 @@ export default function LegionAttendance() {
     }
   }
 
-  // تحميل تواريخ الترم المختار (للاستخدام في حقل التاريخ عند Meeting)
+  // تحميل تواريخ الترم المختار (لـ Select تاريخ meeting للإكويبـيـرز)
   useEffect(() => { if (termId) loadTermDates(termId) }, [termId])
   async function loadTermDates(tid: string) {
     try {
@@ -109,7 +117,6 @@ export default function LegionAttendance() {
       const list = (data as any as TermDateRow[]) ?? []
       setTermDates(list)
 
-      // لو النوع اجتماع: لو التاريخ الحالي مش ضمن القائمة خليه أول تاريخ متاح
       if ((kind === 'equipiers' || dayType === 'meeting')) {
         if (!list.find(d => d.meeting_date === dayDate)) {
           setDayDate(list[0]?.meeting_date || '')
@@ -120,7 +127,55 @@ export default function LegionAttendance() {
     }
   }
 
-  useEffect(() => { if (teamId) refreshRead() }, [teamId, scope, termId, terms])
+  // تواريخ التحليل من جدول meetings فعليًا
+  useEffect(() => { if (teamId) loadAnalysisDates() }, [teamId, scope, termId])
+  async function loadAnalysisDates() {
+    try {
+      let q = supabase.from('meetings')
+        .select('meeting_date, mtype')
+        .eq('team_id', teamId) as any
+
+      if (scope === 'term') {
+        const t = terms.find(x => x.id === termId)
+        if (t?.start_date) q = q.gte('meeting_date', t.start_date)
+        if (t?.end_date)   q = q.lte('meeting_date', t.end_date)
+      }
+
+      const { data, error } = await q.order('meeting_date', { ascending: true })
+      if (error) throw error
+
+      const mSet = new Set<string>()
+      const pSet = new Set<string>()
+      ;(data as any[] ?? []).forEach(row => {
+        if (row.mtype === 'meeting') mSet.add(row.meeting_date)
+        else if (row.mtype === 'preparation') pSet.add(row.meeting_date)
+      })
+      const mList = Array.from(mSet)
+      const pList = Array.from(pSet)
+      setMeetingDates(mList)
+      setPreparationDates(pList)
+
+      // تأكيد صلاحية filterDate
+      const currentSet = analysisType === 'meeting' ? mSet : analysisType === 'preparation' ? pSet : null
+      if (currentSet && filterDate && !currentSet.has(filterDate)) {
+        setFilterDate('')
+      }
+
+      // لو المستخدم اختار dayType=preparation والـ dayDate غير موجود وسط القائمة، اضبطه
+      if (dayType === 'preparation') {
+        if (pList.length && !pList.includes(dayDate)) {
+          setDayDate(pList[0])
+        }
+      }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل تواريخ التحليل')
+    }
+  }
+
+  // القراءة العامة لسجلات الحضور/الغياب
+  useEffect(() => { if (teamId) refreshRead() }, [teamId, scope, termId])
+  useEffect(() => { if (teamId) refreshRead() }, [analysisType, filterDate])
+
   async function refreshRead() {
     setLoading(true)
     try {
@@ -134,6 +189,9 @@ export default function LegionAttendance() {
         if (t?.end_date)   q = q.lte('meetings.meeting_date', t.end_date)
       }
 
+      if (analysisType !== 'all') q = q.eq('meetings.mtype', analysisType)
+      if (filterDate) q = q.eq('meetings.meeting_date', filterDate)
+
       q = q.order('meeting_date', { foreignTable: 'meetings', ascending: false }).range(0, 9999)
 
       const { data, error } = await q
@@ -146,24 +204,42 @@ export default function LegionAttendance() {
     }
   }
 
-  // لو اختار Equipiers: ثبّت النوع Meeting (زي ما كان موجود) + وفّق التاريخ مع قائمة الترم
+  // مواءمة قيود تسجيل الإكويبـيـرز
   useEffect(() => {
     if (kind === 'equipiers' && dayType !== 'meeting') {
       setDayType('meeting')
     }
     if (kind === 'equipiers' || dayType === 'meeting') {
-      // لو التاريخ الحالي مش ضمن تواريخ الترم، اختَر أول تاريخ
       if (termDates.length && !termDates.find(d => d.meeting_date === dayDate)) {
-        setDayDate(termDates[0].meeting_date)
+        setDayDate(termDates[0]?.meeting_date || '')
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, dayType, termDates])
 
-  useEffect(() => { if (teamId && dayDate && (dayType || kind)) refreshDay() }, [teamId, dayDate, dayType, kind])
+  // عند التحويل لتحضير، اضبط اليوم من قائمة تواريخ التحضير إن وُجدت
+  useEffect(() => {
+    if (dayType === 'preparation') {
+      if (preparationDates.length) {
+        if (!preparationDates.includes(dayDate)) setDayDate(preparationDates[0])
+      } else {
+        // لا تواريخ بعد—فرّغ اليوم إلى حين الإضافة
+        setDayDate('')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayType, preparationDates])
+
+  useEffect(() => { if (teamId && (dayDate || dayType==='preparation') && (dayType || kind)) refreshDay() }, [teamId, dayDate, dayType, kind])
   async function refreshDay() {
     try {
       if (kind === 'equipiers' && dayType !== 'meeting') setDayType('meeting')
+
+      // لو تحضير و dayDate فاضي (لا تواريخ موجودة بعد) لا تعمل كويري
+      if (dayType === 'preparation' && !dayDate) {
+        setDayStatus({})
+        return
+      }
 
       const { data, error } = await supabase
         .from('attendance')
@@ -195,22 +271,39 @@ export default function LegionAttendance() {
     }
   }, [members, kind])
 
+  // إحصائيات مفصّلة تشمل اجتماعات/تحضيرات منفصلين
   const stats = useMemo(() => {
     const map: Record<string, {
       present: number, total: number,
-      excused: number, unexcused: number
+      excused: number, unexcused: number,
+      m_present: number, m_total: number,
+      p_present: number, p_total: number
     }> = {}
 
     rows.forEach(r => {
       const mid = r.member_id
-      if (!map[mid]) map[mid] = { present: 0, total: 0, excused: 0, unexcused: 0 }
+      if (!map[mid]) map[mid] = {
+        present: 0, total: 0, excused: 0, unexcused: 0,
+        m_present: 0, m_total: 0, p_present: 0, p_total: 0
+      }
       map[mid].total += 1
       if (r.is_present) map[mid].present += 1
       else (r.is_excused ? map[mid].excused++ : map[mid].unexcused++)
+
+      if (r.meetings.mtype === 'meeting') {
+        map[mid].m_total += 1
+        if (r.is_present) map[mid].m_present += 1
+      } else if (r.meetings.mtype === 'preparation') {
+        map[mid].p_total += 1
+        if (r.is_present) map[mid].p_present += 1
+      }
     })
 
     const arr = filteredMembers.map(m => {
-      const s = map[m.id] || { present: 0, total: 0, excused: 0, unexcused: 0 }
+      const s = map[m.id] || {
+        present: 0, total: 0, excused: 0, unexcused: 0,
+        m_present: 0, m_total: 0, p_present: 0, p_total: 0
+      }
       const pct = s.total > 0 ? Math.round((s.present / s.total) * 100) : 0
       return {
         member_id: m.id,
@@ -221,6 +314,8 @@ export default function LegionAttendance() {
         unexcused: s.unexcused,
         total: s.total,
         pct,
+        m_present: s.m_present, m_total: s.m_total,
+        p_present: s.p_present, p_total: s.p_total
       }
     })
 
@@ -296,11 +391,38 @@ export default function LegionAttendance() {
       if (aerr) throw aerr
 
       toast.success('تم حفظ الحضور/الغياب')
-      await Promise.all([refreshDay(), refreshRead()])
+      await Promise.all([refreshDay(), refreshRead(), loadAnalysisDates()])
     } catch (e:any) {
       toast.error(e.message || 'تعذر الحفظ')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // إضافة تاريخ تحضير جديد (يُنشئ اجتماع تحضير ويُحدّث القوائم فورًا)
+  async function addPreparationDate() {
+    if (!teamId) return
+    if (!newPrepDate) {
+      toast.error('اختر تاريخ التحضير أولًا')
+      return
+    }
+    try {
+      const { error } = await supabase
+        .from('meetings')
+        .upsert(
+          { team_id: teamId, meeting_date: newPrepDate, mtype: 'preparation' },
+          { onConflict: 'team_id,meeting_date,mtype' }
+        )
+      if (error) throw error
+      // حدّث القوائم واضبط اليوم الجاري على التاريخ الجديد
+      await loadAnalysisDates()
+      setDayType('preparation')
+      setDayDate(newPrepDate)
+      setNewPrepDate('')
+      await refreshDay()
+      toast.success('تم إضافة تاريخ التحضير')
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر إضافة التاريخ')
     }
   }
 
@@ -310,7 +432,7 @@ export default function LegionAttendance() {
 
       <h1 className="text-xl font-bold">غياب/حضور فريقي — (قائد الفرقة)</h1>
 
-      {/* فلاتر القراءة */}
+      {/* فلاتر القراءة العامة */}
       <div className="grid md:grid-cols-4 gap-3 items-end">
         <div>
           <label className="text-sm">نطاق الحساب</label>
@@ -363,8 +485,9 @@ export default function LegionAttendance() {
         <h2 className="text-lg font-semibold">تسجيل حضور/غياب — اليوم</h2>
 
         <div className="grid md:grid-cols-5 gap-2 items-end">
-          <div>
+          <div className="md:col-span-2">
             <label className="text-sm">التاريخ</label>
+
             {(kind === 'equipiers' || dayType === 'meeting') ? (
               <select
                 className="border rounded-xl p-2 w-full cursor-pointer"
@@ -377,14 +500,33 @@ export default function LegionAttendance() {
                 ))}
               </select>
             ) : (
-              <input
-                type="date"
-                className="border rounded-xl p-2 w-full"
-                value={dayDate}
-                onChange={e=>setDayDate(e.target.value)}
-              />
+              // تحضير: دروب-داون من تواريخ التحضير + إضافة تاريخ جديد
+              <div className="space-y-2">
+                <select
+                  className="border rounded-xl p-2 w-full cursor-pointer"
+                  value={dayDate}
+                  onChange={e=>setDayDate(e.target.value)}
+                >
+                  {preparationDates.length === 0 && <option value="">— لا توجد تواريخ تحضير —</option>}
+                  {preparationDates.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+
+                <div className="text-[11px] text-gray-500">أو أضف تاريخ تحضير جديد:</div>
+                <div className="flex items-end gap-2">
+                  <input
+                    type="date"
+                    className="border rounded-xl p-2 w-full"
+                    value={newPrepDate}
+                    onChange={e=>setNewPrepDate(e.target.value)}
+                  />
+                  <button className="btn border whitespace-nowrap" onClick={addPreparationDate}>إضافة</button>
+                </div>
+              </div>
             )}
           </div>
+
           <div>
             <label className="text-sm">نوع اليوم</label>
             <select
@@ -397,7 +539,8 @@ export default function LegionAttendance() {
               <option value="preparation">تحضير</option>
             </select>
           </div>
-          <div className="md:col-span-3 md:text-end">
+
+          <div className="md:col-span-2 md:text-end">
             <LoadingButton loading={saving} onClick={saveDay}>
               <span className="w-full md:w-auto inline-block">حفظ اليوم</span>
             </LoadingButton>
@@ -457,6 +600,46 @@ export default function LegionAttendance() {
         </div>
       </section>
 
+      {/* فلاتر التحليل الإضافية */}
+      <section className="card space-y-3">
+        <h2 className="text-lg font-semibold">فلاتر التحليل</h2>
+        <div className="grid md:grid-cols-3 gap-2 items-end">
+          <div>
+            <label className="text-sm">نوع اليوم (للتحليل)</label>
+            <select
+              className="border rounded-xl p-2 w-full cursor-pointer"
+              value={analysisType}
+              onChange={e=>{
+                const v = e.target.value as 'all'|'meeting'|'preparation'
+                setAnalysisType(v)
+                setFilterDate('')
+              }}
+            >
+              <option value="all">الكل</option>
+              <option value="meeting">اجتماع</option>
+              <option value="preparation">تحضير</option>
+            </select>
+          </div>
+          <div className={`${analysisType==='all' ? 'opacity-60 pointer-events-none' : ''}`}>
+            <label className="text-sm">تاريخ محدد</label>
+            <select
+              className="border rounded-xl p-2 w-full cursor-pointer"
+              value={filterDate}
+              onChange={e=>setFilterDate(e.target.value)}
+            >
+              <option value="">— كل التواريخ —</option>
+              {(analysisType==='meeting' ? meetingDates : analysisType==='preparation' ? preparationDates : []).map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <div className="text-[11px] text-gray-500 mt-1">التواريخ تُقرأ من جدول الاجتماعات المُسجّلة فعليًا للفريق.</div>
+          </div>
+          <div className="md:text-end">
+            <button className="btn border w-full md:w-auto" onClick={refreshRead}>تطبيق الفلاتر</button>
+          </div>
+        </div>
+      </section>
+
       {/* الإحصائيات */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">الإحصائيات</h2>
@@ -478,7 +661,7 @@ export default function LegionAttendance() {
 
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
-            <table className="table-auto w-full min-w-[880px] text-sm">
+            <table className="table-auto w-full min-w-[1100px] text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-2 text-start">الاسم</th>
@@ -488,6 +671,8 @@ export default function LegionAttendance() {
                   <th className="p-2 text-center">غياب بدون عذر</th>
                   <th className="p-2 text-center">الإجمالي</th>
                   <th className="p-2 text-center">نسبة الحضور</th>
+                  <th className="p-2 text-center">اجتماعات (حضر/إجمالي)</th>
+                  <th className="p-2 text-center">تحضيرات (حضر/إجمالي)</th>
                 </tr>
               </thead>
               <tbody>
@@ -504,10 +689,20 @@ export default function LegionAttendance() {
                         {r.total > 0 ? `${r.pct}%` : '—'}
                       </span>
                     </td>
+                    <td className="p-2 text-center">
+                      <span className="inline-flex items-center justify-center min-w-[72px] px-2 py-1 rounded-full bg-white border text-xs">
+                        {r.m_present} / {r.m_total}
+                      </span>
+                    </td>
+                    <td className="p-2 text-center">
+                      <span className="inline-flex items-center justify-center min-w-[72px] px-2 py-1 rounded-full bg-white border text-xs">
+                        {r.p_present} / {r.p_total}
+                      </span>
+                    </td>
                   </tr>
                 ))}
                 {stats.length === 0 && (
-                  <tr><td className="p-3 text-center text-gray-500" colSpan={7}>لا توجد بيانات لعرضها</td></tr>
+                  <tr><td className="p-3 text-center text-gray-500" colSpan={9}>لا توجد بيانات لعرضها</td></tr>
                 )}
               </tbody>
             </table>
