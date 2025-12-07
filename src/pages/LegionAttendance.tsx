@@ -13,6 +13,8 @@ type AttRow = {
   is_present: boolean
   is_excused: boolean | null
   excuse_note: string | null
+  is_uniform?: boolean | null
+  has_agenda?: boolean | null
   meetings: { meeting_date: string; mtype: 'preparation' | 'meeting'; team_id: string }
 }
 
@@ -23,6 +25,8 @@ type DayStatus = {
   present?: boolean
   is_excused?: boolean
   excuse_note?: string
+  is_uniform?: boolean
+  has_agenda?: boolean
 }
 
 type StatsSort = 'name' | 'most' | 'least'
@@ -64,7 +68,7 @@ export default function LegionAttendance() {
   const [meetingDates, setMeetingDates] = useState<string[]>([])     // meetings (meeting)
   const [preparationDates, setPreparationDates] = useState<string[]>([]) // meetings (preparation)
 
-  // جديد: إضافة تاريخ تحضير سريع
+  // إضافة تاريخ تحضير سريع
   const [newPrepDate, setNewPrepDate] = useState<string>('')
 
   useEffect(() => { init() }, [])
@@ -180,7 +184,7 @@ export default function LegionAttendance() {
     setLoading(true)
     try {
       let q = supabase.from('attendance')
-        .select('member_id,is_present,is_excused,excuse_note,meetings!inner(meeting_date,mtype,team_id)')
+        .select('member_id,is_present,is_excused,excuse_note,is_uniform,has_agenda,meetings!inner(meeting_date,mtype,team_id)')
         .eq('meetings.team_id', teamId) as any
 
       if (scope === 'term') {
@@ -223,7 +227,6 @@ export default function LegionAttendance() {
       if (preparationDates.length) {
         if (!preparationDates.includes(dayDate)) setDayDate(preparationDates[0])
       } else {
-        // لا تواريخ بعد—فرّغ اليوم إلى حين الإضافة
         setDayDate('')
       }
     }
@@ -243,7 +246,7 @@ export default function LegionAttendance() {
 
       const { data, error } = await supabase
         .from('attendance')
-        .select('member_id, is_present, is_excused, excuse_note, meetings!inner(id, team_id, meeting_date, mtype)')
+        .select('member_id, is_present, is_excused, excuse_note, is_uniform, has_agenda, meetings!inner(id, team_id, meeting_date, mtype)')
         .eq('meetings.team_id', teamId)
         .eq('meetings.meeting_date', dayDate)
         .eq('meetings.mtype', kind === 'equipiers' ? 'meeting' : dayType)
@@ -254,7 +257,9 @@ export default function LegionAttendance() {
         map[r.member_id] = {
           present: !!r.is_present,
           is_excused: !!r.is_excused,
-          excuse_note: r.excuse_note || ''
+          excuse_note: r.excuse_note || '',
+          is_uniform: !!r.is_uniform,
+          has_agenda: !!r.has_agenda
         }
       }
       setDayStatus(map)
@@ -271,7 +276,7 @@ export default function LegionAttendance() {
     }
   }, [members, kind])
 
-  // إحصائيات مفصّلة تشمل اجتماعات/تحضيرات منفصلين
+  // إحصائيات (كما هي — لا حاجة لإدراج الزي/الأجندة هنا حاليًا)
   const stats = useMemo(() => {
     const map: Record<string, {
       present: number, total: number,
@@ -333,7 +338,17 @@ export default function LegionAttendance() {
   function setPresent(mid: string, v: boolean) {
     setDayStatus(prev => {
       const curr = prev[mid] || {}
-      return { ...prev, [mid]: { ...curr, present: v, ...(v ? { is_excused: false, excuse_note: '' } : {}) } }
+      return {
+        ...prev,
+        [mid]: {
+          ...curr,
+          present: v,
+          ...(v
+            ? { is_excused: false, excuse_note: '', is_uniform: !!curr.is_uniform, has_agenda: !!curr.has_agenda }
+            : { is_excused: curr.is_excused, excuse_note: curr.excuse_note, is_uniform: false, has_agenda: false }
+          )
+        }
+      }
     })
   }
   function setExcused(mid: string, v: boolean) {
@@ -346,6 +361,18 @@ export default function LegionAttendance() {
     setDayStatus(prev => {
       const curr = prev[mid] || {}
       return { ...prev, [mid]: { ...curr, excuse_note: v } }
+    })
+  }
+  function setUniform(mid: string, v: boolean) {
+    setDayStatus(prev => {
+      const curr = prev[mid] || {}
+      return { ...prev, [mid]: { ...curr, is_uniform: v } }
+    })
+  }
+  function setAgenda(mid: string, v: boolean) {
+    setDayStatus(prev => {
+      const curr = prev[mid] || {}
+      return { ...prev, [mid]: { ...curr, has_agenda: v } }
     })
   }
 
@@ -375,7 +402,9 @@ export default function LegionAttendance() {
             member_id: m.id,
             is_present: st.present,
             is_excused: st.present ? false : !!st.is_excused,
-            excuse_note: st.present ? null : (st.excuse_note || null)
+            excuse_note: st.present ? null : (st.excuse_note || null),
+            is_uniform: st.present ? !!st.is_uniform : false,
+            has_agenda: st.present ? !!st.has_agenda : false
           })
         }
       }
@@ -399,7 +428,7 @@ export default function LegionAttendance() {
     }
   }
 
-  // إضافة تاريخ تحضير جديد (يُنشئ اجتماع تحضير ويُحدّث القوائم فورًا)
+  // إضافة تاريخ تحضير جديد
   async function addPreparationDate() {
     if (!teamId) return
     if (!newPrepDate) {
@@ -414,7 +443,6 @@ export default function LegionAttendance() {
           { onConflict: 'team_id,meeting_date,mtype' }
         )
       if (error) throw error
-      // حدّث القوائم واضبط اليوم الجاري على التاريخ الجديد
       await loadAnalysisDates()
       setDayType('preparation')
       setDayDate(newPrepDate)
@@ -550,7 +578,7 @@ export default function LegionAttendance() {
         {/* جدول اليوم */}
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
-            <table className="table-auto w-full min-w-[900px] text-sm">
+            <table className="table-auto w-full min-w-[1120px] text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-2 text-start">الاسم</th>
@@ -558,6 +586,8 @@ export default function LegionAttendance() {
                   <th className="p-2 text-center">حاضر</th>
                   <th className="p-2 text-center">غائب</th>
                   <th className="p-2 text-center">بعذر؟</th>
+                  <th className="p-2 text-center">زي كشفي</th>
+                  <th className="p-2 text-center">أجندة</th>
                   <th className="p-2 text-start">العذر</th>
                 </tr>
               </thead>
@@ -579,6 +609,12 @@ export default function LegionAttendance() {
                       <td className="p-2 text-center">
                         <input type="checkbox" disabled={!absent} checked={!!st.is_excused} onChange={e=>setExcused(m.id, e.target.checked)} />
                       </td>
+                      <td className="p-2 text-center">
+                        <input type="checkbox" disabled={!present} checked={!!st.is_uniform} onChange={e=>setUniform(m.id, e.target.checked)} />
+                      </td>
+                      <td className="p-2 text-center">
+                        <input type="checkbox" disabled={!present} checked={!!st.has_agenda} onChange={e=>setAgenda(m.id, e.target.checked)} />
+                      </td>
                       <td className="p-2">
                         <input
                           className="border rounded-xl p-2 w-full"
@@ -592,7 +628,7 @@ export default function LegionAttendance() {
                   )
                 })}
                 {filteredMembers.length === 0 && (
-                  <tr><td className="p-3 text-center text-gray-500" colSpan={6}>لا يوجد أعضاء في هذا التصنيف</td></tr>
+                  <tr><td className="p-3 text-center text-gray-500" colSpan={8}>لا يوجد أعضاء في هذا التصنيف</td></tr>
                 )}
               </tbody>
             </table>
@@ -661,7 +697,7 @@ export default function LegionAttendance() {
 
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
-            <table className="table-auto w-full min-w-[1100px] text-sm">
+            <table className="table-auto w-full min-w={[1100,1120].includes(0 as any) ? '1100px' : '1100px'} text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-2 text-start">الاسم</th>
