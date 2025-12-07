@@ -258,8 +258,8 @@ export default function LegionAttendance() {
           present: !!r.is_present,
           is_excused: !!r.is_excused,
           excuse_note: r.excuse_note || '',
-          is_uniform: !!r.is_uniform,
-          has_agenda: !!r.has_agenda
+          is_uniform: r.is_uniform ?? false,
+          has_agenda: r.has_agenda ?? false
         }
       }
       setDayStatus(map)
@@ -276,7 +276,7 @@ export default function LegionAttendance() {
     }
   }, [members, kind])
 
-  // إحصائيات (كما هي — لا حاجة لإدراج الزي/الأجندة هنا حاليًا)
+  // إحصائيات
   const stats = useMemo(() => {
     const map: Record<string, {
       present: number, total: number,
@@ -352,28 +352,16 @@ export default function LegionAttendance() {
     })
   }
   function setExcused(mid: string, v: boolean) {
-    setDayStatus(prev => {
-      const curr = prev[mid] || {}
-      return { ...prev, [mid]: { ...curr, is_excused: v } }
-    })
+    setDayStatus(prev => ({ ...prev, [mid]: { ...(prev[mid]||{}), is_excused: v } }))
   }
   function setNote(mid: string, v: string) {
-    setDayStatus(prev => {
-      const curr = prev[mid] || {}
-      return { ...prev, [mid]: { ...curr, excuse_note: v } }
-    })
+    setDayStatus(prev => ({ ...prev, [mid]: { ...(prev[mid]||{}), excuse_note: v } }))
   }
   function setUniform(mid: string, v: boolean) {
-    setDayStatus(prev => {
-      const curr = prev[mid] || {}
-      return { ...prev, [mid]: { ...curr, is_uniform: v } }
-    })
+    setDayStatus(prev => ({ ...prev, [mid]: { ...(prev[mid]||{}), is_uniform: v } }))
   }
   function setAgenda(mid: string, v: boolean) {
-    setDayStatus(prev => {
-      const curr = prev[mid] || {}
-      return { ...prev, [mid]: { ...curr, has_agenda: v } }
-    })
+    setDayStatus(prev => ({ ...prev, [mid]: { ...(prev[mid]||{}), has_agenda: v } }))
   }
 
   async function saveDay() {
@@ -382,6 +370,7 @@ export default function LegionAttendance() {
     if (!dayType) return toast.error('اختر نوع اليوم')
 
     const effectiveType = kind === 'equipiers' ? 'meeting' : dayType
+    const hideUniform = (dayType === 'preparation' && kind === 'chefs')
 
     setSaving(true)
     try {
@@ -403,7 +392,7 @@ export default function LegionAttendance() {
             is_present: st.present,
             is_excused: st.present ? false : !!st.is_excused,
             excuse_note: st.present ? null : (st.excuse_note || null),
-            is_uniform: st.present ? !!st.is_uniform : false,
+            is_uniform: hideUniform ? null : (st.present ? !!st.is_uniform : false),
             has_agenda: st.present ? !!st.has_agenda : false
           })
         }
@@ -453,6 +442,10 @@ export default function LegionAttendance() {
       toast.error(e.message || 'تعذر إضافة التاريخ')
     }
   }
+
+  // ⬇️ إخفاء عمود الزي للكشفية عند تحضير القادة فقط
+  const hideUniformColumn = (dayType === 'preparation' && kind === 'chefs')
+  const columnsCountToday = hideUniformColumn ? 7 : 8
 
   return (
     <div className="p-6 space-y-6">
@@ -586,7 +579,7 @@ export default function LegionAttendance() {
                   <th className="p-2 text-center">حاضر</th>
                   <th className="p-2 text-center">غائب</th>
                   <th className="p-2 text-center">بعذر؟</th>
-                  <th className="p-2 text-center">زي كشفي</th>
+                  {!hideUniformColumn && <th className="p-2 text-center">زي كشفي</th>}
                   <th className="p-2 text-center">أجندة</th>
                   <th className="p-2 text-start">العذر</th>
                 </tr>
@@ -609,9 +602,13 @@ export default function LegionAttendance() {
                       <td className="p-2 text-center">
                         <input type="checkbox" disabled={!absent} checked={!!st.is_excused} onChange={e=>setExcused(m.id, e.target.checked)} />
                       </td>
-                      <td className="p-2 text-center">
-                        <input type="checkbox" disabled={!present} checked={!!st.is_uniform} onChange={e=>setUniform(m.id, e.target.checked)} />
-                      </td>
+
+                      {!hideUniformColumn && (
+                        <td className="p-2 text-center">
+                          <input type="checkbox" disabled={!present} checked={!!st.is_uniform} onChange={e=>setUniform(m.id, e.target.checked)} />
+                        </td>
+                      )}
+
                       <td className="p-2 text-center">
                         <input type="checkbox" disabled={!present} checked={!!st.has_agenda} onChange={e=>setAgenda(m.id, e.target.checked)} />
                       </td>
@@ -628,7 +625,7 @@ export default function LegionAttendance() {
                   )
                 })}
                 {filteredMembers.length === 0 && (
-                  <tr><td className="p-3 text-center text-gray-500" colSpan={8}>لا يوجد أعضاء في هذا التصنيف</td></tr>
+                  <tr><td className="p-3 text-center text-gray-500" colSpan={columnsCountToday}>لا يوجد أعضاء في هذا التصنيف</td></tr>
                 )}
               </tbody>
             </table>
@@ -697,7 +694,7 @@ export default function LegionAttendance() {
 
         <div className="rounded-2xl border">
           <div className="block overflow-x-auto" dir="ltr" style={{ WebkitOverflowScrolling: 'touch' as any }}>
-            <table className="table-auto w-full min-w={[1100,1120].includes(0 as any) ? '1100px' : '1100px'} text-sm">
+            <table className="table-auto w-full min-w-[1100px] text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-2 text-start">الاسم</th>
