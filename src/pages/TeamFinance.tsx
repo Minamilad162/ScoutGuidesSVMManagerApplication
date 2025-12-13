@@ -5,11 +5,11 @@ import { LoadingButton } from '../components/ui/LoadingButton'
 import { PageLoader } from '../components/ui/PageLoader'
 import { useRoleGate } from '../hooks/useRoleGate'
 import { useAuth } from '../components/AuthProvider'
-import ExcelJS from 'exceljs' // تصدير XLSX مع تنسيقات
+import ExcelJS from 'exceljs'
 
 type Team = { id: string; name: string }
 type Term = { id: string; name: string; year: number; start_date?: string | null; end_date?: string | null }
-type Expense = { id: string; expense_date: string; item_name: string; qty: number; unit_price: number; total: number }
+type Expense = { id: string; expense_date: string; item_name: string; qty: number; unit_price: number; total: number; is_delivered: boolean }
 type TermDateRow = { id: string; meeting_date: string }
 
 export default function TeamFinance() {
@@ -25,7 +25,7 @@ export default function TeamFinance() {
   const [teamId, setTeamId] = useState<string>('')
   const [termId, setTermId] = useState<string>('')
 
-  // ✅ تواريخ الترم من جدول term_meeting_dates
+  // تواريخ الترم
   const [termDates, setTermDates] = useState<TermDateRow[]>([])
   const hasTermDates = termDates.length > 0
 
@@ -35,11 +35,12 @@ export default function TeamFinance() {
   const [savingExp, setSavingExp] = useState(false)
 
   // Expense form
-  const [exDate, setExDate] = useState<string>('')                // التاريخ النهائي اللي بنحفظه
-  const [useCustomDate, setUseCustomDate] = useState<boolean>(false) // هل المستخدم مختار "تاريخ آخر"؟
+  const [exDate, setExDate] = useState<string>('')                 // التاريخ المحفوظ
+  const [useCustomDate, setUseCustomDate] = useState<boolean>(false)
   const [exName, setExName] = useState<string>('')
   const [exQty, setExQty] = useState<number | ''>('')
   const [exUnit, setExUnit] = useState<number | ''>('')
+  const [exDelivered, setExDelivered] = useState<boolean>(false)    // ⬅️ جديد: حالة التسليم وقت الإدخال
 
   // Export state
   const [exporting, setExporting] = useState(false)
@@ -67,7 +68,6 @@ export default function TeamFinance() {
     0x2019:0x92, 0x201C:0x93, 0x201D:0x94, 0x2022:0x95, 0x2013:0x96, 0x2014:0x97, 0x02DC:0x98,
     0x2122:0x99, 0x0161:0x9A, 0x203A:0x9B, 0x0153:0x9C, 0x017E:0x9E, 0x0178:0x9F
   }
-
   const win1252MojibakeToUtf8 = (input: string) => {
     const cleaned = stripMarks(input)
     if (!looksMojibake(cleaned)) return cleaned
@@ -78,7 +78,6 @@ export default function TeamFinance() {
     }))
     try { return new TextDecoder('utf-8').decode(bytes) } catch { return cleaned }
   }
-
   const sanitizeForUI = (v: any) => {
     const s = stripMarks(v)
     return win1252MojibakeToUtf8(s)
@@ -89,7 +88,6 @@ export default function TeamFinance() {
   const termMeta = useMemo(() => terms.find(t => t.id === termId) || null, [terms, termId])
   const termMin = termMeta?.start_date || ''
   const termMax = termMeta?.end_date || ''
-
   const clampToTerm = (d: string) => {
     if (!d) return d
     if (!termMin && !termMax) return d
@@ -138,7 +136,6 @@ export default function TeamFinance() {
         setExportTeamId(myTeamId)
       }
 
-      // تاريخ اليوم (سنضبطه لاحقًا مع الترم/التواريخ)
       const today = new Date()
       setExDate(fmtDate(today))
     } catch (e:any) {
@@ -162,11 +159,9 @@ export default function TeamFinance() {
       setTermDates(list)
 
       if (list.length > 0) {
-        // افتراضيًا: أول تاريخ في الترم + الغي "تاريخ آخر"
         setUseCustomDate(false)
         setExDate(list[0].meeting_date)
       } else {
-        // مفيش تواريخ — خلي التاريخ داخل نطاق الترم (لو محدد)
         setUseCustomDate(true)
         if (termMeta?.start_date) setExDate(termMeta.start_date)
         else setExDate(prev => clampToTerm(prev) || prev)
@@ -182,7 +177,7 @@ export default function TeamFinance() {
     try {
       const [{ data: bRow, error: bErr }, { data: expRows, error: eErr }] = await Promise.all([
         supabase.from('team_budgets').select('amount_total').eq('team_id', teamId).eq('term_id', termId).is('soft_deleted_at', null).maybeSingle(),
-        supabase.from('expenses').select('id, expense_date, item_name, qty, unit_price, total').eq('team_id', teamId).eq('term_id', termId).is('soft_deleted_at', null).order('expense_date', { ascending: false })
+        supabase.from('expenses').select('id, expense_date, item_name, qty, unit_price, total, is_delivered').eq('team_id', teamId).eq('term_id', termId).is('soft_deleted_at', null).order('expense_date', { ascending: false })
       ])
       if (bErr) throw bErr
       if (eErr) throw eErr
@@ -192,6 +187,7 @@ export default function TeamFinance() {
         ...row,
         expense_date: sanitizeForUI(row.expense_date),
         item_name: sanitizeForUI(row.item_name),
+        is_delivered: !!row.is_delivered
       }))
       setExpenses(fixed as Expense[])
     } catch (e:any) {
@@ -210,11 +206,10 @@ export default function TeamFinance() {
     return 'ok'
   }, [budget, remaining, spent])
 
-  // ====== تاريخ المصروف: Select من تواريخ الترم أو input داخل نطاق الترم ======
+  // تاريخ المصروف: Select من تواريخ الترم أو input داخل نطاق الترم
   function onSelectDateChange(v: string) {
     if (v === '__custom__') {
       setUseCustomDate(true)
-      // عند التحويل لـ custom لو exDate خارج النطاق حنقربه للحدود
       setExDate(prev => clampToTerm(prev) || prev)
     } else {
       setUseCustomDate(false)
@@ -231,7 +226,6 @@ export default function TeamFinance() {
     if (!exName.trim()) return toast.error('ادخل اسم المنتج')
     if (!exDate) return toast.error('اختر التاريخ')
 
-    // ✅ تأكيد أن التاريخ داخل نطاق الترم (لو الحدود متاحة)
     const clamped = clampToTerm(exDate)
     if ((termMin || termMax) && clamped !== exDate) {
       return toast.error('التاريخ خارج نطاق الترم المحدد')
@@ -244,11 +238,12 @@ export default function TeamFinance() {
         team_id: teamId, term_id: termId,
         expense_date: stripMarks(exDate),
         item_name: cleanName,
-        qty: q, unit_price: u
+        qty: q, unit_price: u,
+        is_delivered: !!exDelivered // ⬅️ يسجّل حسب اختيار المستخدم
       })
       if (error) throw error
       toast.success('تم إضافة المصروف')
-      setExName(''); setExQty(''); setExUnit('')
+      setExName(''); setExQty(''); setExUnit(''); setExDelivered(false)
       await refreshData()
     } catch (e:any) {
       toast.error(e.message || 'تعذر إضافة المصروف')
@@ -257,7 +252,7 @@ export default function TeamFinance() {
     }
   }
 
-  /* =============================== Export: ExcelJS XLSX (Sheet لكل ترم) =============================== */
+  /* =============================== Export (كما هو) =============================== */
 
   async function fetchFinanceData(filters: {
     termIds?: string[]
@@ -305,12 +300,10 @@ export default function TeamFinance() {
     if (parts.length === 3 && !parts.some(isNaN)) return new Date(parts[0], parts[1]-1, parts[2])
     return d as any
   }
-
   function sanitizeSheetName(name: string) {
     const cleaned = name.replace(/[:\\/?*\[\]]/g, ' ').trim()
     return cleaned.length > 31 ? cleaned.slice(0, 29) + '…' : cleaned
   }
-
   function ensureUniqueName(base: string, used: Set<string>) {
     let name = sanitizeSheetName(base)
     if (!used.has(name)) { used.add(name); return name }
@@ -346,7 +339,6 @@ export default function TeamFinance() {
       }
 
       const { teamsMap, termsMap, termsArr, budgets, exps } = await fetchFinanceData(filters)
-
       type Key = string
       const keyOf = (t:string, r:string) => `${t}|${r}`
       const budgetMap = new Map<Key, number>()
@@ -365,7 +357,8 @@ export default function TeamFinance() {
           item_name: sanitizeForUI(e.item_name),
           qty: Number(e.qty) || 0,
           unit_price: Number(e.unit_price) || 0,
-          total: Number(e.total) || (Number(e.qty||0) * Number(e.unit_price||0))
+          total: Number(e.total) || (Number(e.qty||0) * Number(e.unit_price||0)),
+          is_delivered: true
         })
         expensesMap.set(k, arr)
       })
@@ -417,7 +410,6 @@ export default function TeamFinance() {
           cell.border = thinBorder
         })
       }
-
       function addDataRow(ws: ExcelJS.Worksheet, values: any[], fillArgb?: string, withBorder = true) {
         const r = ws.addRow(values)
         r.eachCell(cell => {
@@ -511,7 +503,7 @@ export default function TeamFinance() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      toast.success('تم إنشاء ملف Excel: شيت لكل ترم + صف فاصل بين الفرق + Borders')
+      toast.success('تم إنشاء ملف Excel')
     } catch (e:any) {
       console.error(e)
       toast.error(e.message || 'فشل إنشاء ملف Excel')
@@ -520,11 +512,12 @@ export default function TeamFinance() {
     }
   }
 
-  /* ===================== NEW: Edit / Delete state & handlers ===================== */
+  /* ===== تعديل/حذف/تبديل التسليم ===== */
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<{ expense_date: string; item_name: string; qty: number | ''; unit_price: number | '' } | null>(null)
   const [savingEditId, setSavingEditId] = useState<string | null>(null)
   const [deletingId,   setDeletingId]   = useState<string | null>(null)
+  const [togglingId,   setTogglingId]   = useState<string | null>(null)
 
   const canModify = (teamId && gate.canWriteExpense(teamId)) || isAdmin || isGlobalFinance
 
@@ -552,7 +545,6 @@ export default function TeamFinance() {
     if (!d) return toast.error('اختر التاريخ')
     if (!editDraft.item_name.trim()) return toast.error('ادخل اسم المنتج')
 
-    // تأكيد  داخل نطاق الترم
     const clamped = clampToTerm(d)
     if ((termMin || termMax) && clamped !== d) {
       return toast.error('التاريخ خارج نطاق الترم المحدد')
@@ -594,6 +586,20 @@ export default function TeamFinance() {
       toast.error(e.message || 'تعذر حذف المصروف')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  async function toggleDelivered(id: string, to: boolean) {
+    if (!canModify) return
+    setTogglingId(id)
+    try {
+      const { error } = await supabase.from('expenses').update({ is_delivered: to }).eq('id', id)
+      if (error) throw error
+      await refreshData()
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحديث حالة التسليم')
+    } finally {
+      setTogglingId(null)
     }
   }
   /* ============================================================================ */
@@ -649,7 +655,7 @@ export default function TeamFinance() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">إضافة مصروف</h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2 items-end">
             <div className="md:col-span-2">
               <label className="text-sm">التاريخ</label>
               {hasTermDates && !useCustomDate ? (
@@ -711,7 +717,21 @@ export default function TeamFinance() {
               <input type="number" min={0} step={0.01} className="border rounded-xl p-2 w-full min-w-0" value={exUnit} onChange={e=>setExUnit(e.target.value as any)} />
             </div>
 
-            <div className="sm:col-span-2 md:col-span-5 flex justify-end">
+            {/* جديد: تمّ التسليم؟ */}
+            <div className="md:col-span-2">
+              <label className="text-sm">تمّ التسليم؟</label>
+              <div className="flex items-center gap-2 p-2 border rounded-xl">
+                <input
+                  type="checkbox"
+                  checked={exDelivered}
+                  onChange={e=>setExDelivered(e.target.checked)}
+                />
+                <span className="text-sm text-gray-700">مُسلّم</span>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">يُمكن تعديلها لاحقًا من الجدول.</div>
+            </div>
+
+            <div className="sm:col-span-2 md:col-span-6 flex justify-end">
               <LoadingButton loading={savingExp} onClick={addExpense}>إضافة مصروف</LoadingButton>
             </div>
           </div>
@@ -776,7 +796,7 @@ export default function TeamFinance() {
           </div>
 
           <div className="text-xs text-gray-500">
-            * كل ترم في شيت منفصل بعنوانه، وبين كل فريق سطر فاضي، وجميع صفوف البيانات والهيدر بحدود (Borders).
+            * كل ترم في شيت منفصل بعنوانه، وبين كل فريق سطر فاضي، وجميع صفوف البيانات والهيدر بحدود.
           </div>
         </section>
       )}
@@ -785,7 +805,7 @@ export default function TeamFinance() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">المصروفات</h2>
         <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
-          <table className="w-full min-w-[880px] text-xs sm:text-sm">
+          <table className="w-full min-w-[1000px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 text-start whitespace-nowrap">التاريخ</th>
@@ -793,13 +813,15 @@ export default function TeamFinance() {
                 <th className="p-2 text-center whitespace-nowrap">العدد</th>
                 <th className="p-2 text-center whitespace-nowrap">سعر القطعة</th>
                 <th className="p-2 text-center whitespace-nowrap">الإجمالي</th>
-                <th className="p-2 text-center whitespace-nowrap">إجراءات</th>{/* NEW */}
+                <th className="p-2 text-center whitespace-nowrap">تمّ التسليم؟</th>{/* جديد */}
+                <th className="p-2 text-center whitespace-nowrap">إجراءات</th>
               </tr>
             </thead>
             <tbody>
               {expenses.map(x => {
                 const isEditing = editingId === x.id
                 const totalDisp = egp(Number(isEditing ? (Number(editDraft?.qty||0) * Number(editDraft?.unit_price||0)) : x.total))
+                const canToggle = !!canModify
                 return (
                   <tr key={x.id} className="border-t">
                     <td className="p-2">
@@ -864,6 +886,19 @@ export default function TeamFinance() {
 
                     <td className="p-2 text-center">{totalDisp}</td>
 
+                    {/* عمود تمّ التسليم */}
+                    <td className="p-2 text-center">
+                      <label className={`inline-flex items-center gap-2 px-2 py-1 rounded-full border ${x.is_delivered?'bg-emerald-50 border-emerald-300 text-emerald-700':'bg-gray-50 border-gray-300 text-gray-700'}`}>
+                        <input
+                          type="checkbox"
+                          checked={!!x.is_delivered}
+                          disabled={!canToggle || togglingId===x.id}
+                          onChange={e=>toggleDelivered(x.id, e.target.checked)}
+                        />
+                        <span className="text-[12px]">{x.is_delivered ? 'مُسلّم' : 'غير مُسلَّم'}</span>
+                      </label>
+                    </td>
+
                     <td className="p-2 text-center">
                       {!canModify ? (
                         <span className="text-gray-400 text-xs">—</span>
@@ -893,7 +928,7 @@ export default function TeamFinance() {
                   </tr>
                 )
               })}
-              {expenses.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={6}>لا توجد مصروفات</td></tr>}
+              {expenses.length === 0 && <tr><td className="p-3 text-center text-gray-500" colSpan={7}>لا توجد مصروفات</td></tr>}
             </tbody>
           </table>
         </div>
