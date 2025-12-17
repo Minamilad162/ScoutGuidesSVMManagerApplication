@@ -44,7 +44,17 @@ function toLocalInput(d: Date) {
 
 function combineDateTime(day: string, timeHHmm: string) { return `${day}T${timeHHmm}` }
 
-function timePart(dt: string) { const m = dt.match(/T(\d{2}:\d{2})/); return m ? m[1] : '00:00' }
+// 12h + (ص/م)
+function fmt12(iso: string) {
+  const d = new Date(iso)
+  if (isNaN(+d)) return '—'
+  let h = d.getHours()
+  const m = String(d.getMinutes()).padStart(2,'0')
+  const am = h < 12
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${m} ${am ? 'ص' : 'م'}`
+}
 
 // هل الحجز يتقاطع مع يوم معيّن (محليًا)؟
 function overlapsDay(isoStart: string, isoEnd: string, dayYYYYMMDD: string) {
@@ -141,8 +151,8 @@ export default function MaterialsTeamReservations() {
       const two = new Date(now.getTime() + 2*60*60*1000)
       setStartAt(toLocalInput(now))
       setEndAt(toLocalInput(two))
-      setStartTime(timePart(toLocalInput(now)))
-      setEndTime(timePart(toLocalInput(two)))
+      setStartTime(toLocalInput(now).slice(11,16))
+      setEndTime(toLocalInput(two).slice(11,16))
       setSelectedDay(toLocalInput(now).slice(0,10)) // YYYY-MM-DD
       setUseCustomDay(false)
     } catch (e:any) {
@@ -287,17 +297,6 @@ export default function MaterialsTeamReservations() {
     } catch (e:any) {
       toast.error(e.message || 'تعذر الإلغاء')
     }
-  }
-
-  function fmtTime12(iso: string, showAmPm = false) {
-    const d = new Date(iso)
-    let h = d.getHours()
-    const am = h < 12
-    h = h % 12
-    if (h === 0) h = 12
-    const m = String(d.getMinutes()).padStart(2, '0')
-    const core = `${h}:${m}`
-    return showAmPm ? `${core}${am ? ' ص' : ' م'}` : core
   }
 
   const matMap = useMemo(() => new Map(materials.map(m => [m.id, m])), [materials])
@@ -469,7 +468,7 @@ export default function MaterialsTeamReservations() {
 
         {/* زر الحجز */}
         <div className="md:col-span-1 md:text-end">
-          {canBook
+          {gate.canBookReservations(teamId)
             ? <LoadingButton loading={saving} onClick={saveReservation}><span className="w-full md:w-auto inline-block">حجز</span></LoadingButton>
             : <div className="text-xs text-amber-600">ليس لديك صلاحية للحجز</div>
           }
@@ -500,8 +499,8 @@ export default function MaterialsTeamReservations() {
                   <td className="p-2 text-end">
                     <button className="btn border text-xs w-full md:w-auto" onClick={()=>cancelReservation(r.id)}>إلغاء</button>
                   </td>
-                  <td className="p-2">{fmtTime12(r.ends_at, true)}</td>
-                  <td className="p-2">{fmtTime12(r.starts_at, true)}</td>
+                  <td className="p-2">{fmt12(r.ends_at)}</td>
+                  <td className="p-2">{fmt12(r.starts_at)}</td>
                   <td className="p-2 text-center">{r.qty}</td>
                   <td className="p-2">{matMap.get(r.material_id)?.name || '—'}</td>
                 </tr>
@@ -525,23 +524,21 @@ export default function MaterialsTeamReservations() {
             <table className="table-auto w-full min-w-[800px] text-sm">
               <thead className="bg-gray-100">
                 <tr>
-                                    <th className="p-2 text-center">إلى</th>
-                  <th className="p-2 text-center">من</th>
+                  <th className="p-2 text-start">الفريق</th>
+                  <th className="p-2 text-start">الأداة</th>
                   <th className="p-2 text-center">العدد</th>
-                  <th className="p-2 text-center">الأداة</th>
-
-                  <th className="p-2 text-center">الفريق</th>
+                  <th className="p-2 text-start whitespace-nowrap">من</th>
+                  <th className="p-2 text-start whitespace-nowrap">إلى</th>
                 </tr>
               </thead>
               <tbody>
                 {dayRows.map(r => (
                   <tr key={r.id} className="border-t">
-                                        <td className="p-2 text-center">{fmtTime12(r.ends_at, true)}</td>
-                    <td className="p-2 text-center">{fmtTime12(r.starts_at, true)}</td>
+                    <td className="p-2">{r.teams?.name || '—'}</td>
+                    <td className="p-2">{r.materials?.name || '—'}</td>
                     <td className="p-2 text-center">{r.qty}</td>
-                    <td className="p-2 text-center">{r.materials?.name || '—'}</td>
-
-                    <td className="p-2 text-center">{r.teams?.name || '—'}</td>
+                    <td className="p-2">{fmt12(r.starts_at)}</td>
+                    <td className="p-2">{fmt12(r.ends_at)}</td>
                   </tr>
                 ))}
                 {(!dayLoading && dayRows.length === 0) && (
