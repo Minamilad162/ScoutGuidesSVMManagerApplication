@@ -107,9 +107,15 @@ export default function AdminReservationsAll() {
     }
   }
 
-  function fmt(iso: string) {
-    const d = new Date(iso); const pad = (n:number)=> String(n).padStart(2,'0')
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  // تنسيق 12-ساعة مع ص/م
+  function fmt12(iso: string) {
+    const d = new Date(iso)
+    let h = d.getHours()
+    const am = h < 12
+    h = h % 12
+    if (h === 0) h = 12
+    const m = String(d.getMinutes()).padStart(2, '0')
+    return `${h}:${m} ${am ? 'ص' : 'م'}`
   }
 
   return (
@@ -177,8 +183,8 @@ export default function AdminReservationsAll() {
                   <td className="p-2">{r.teams?.name || '—'}</td>
                   <td className="p-2">{r.materials?.name || '—'}</td>
                   <td className="p-2 text-center">{r.qty}</td>
-                  <td className="p-2">{fmt(r.starts_at)}</td>
-                  <td className="p-2">{fmt(r.ends_at)}</td>
+                  <td className="p-2">{fmt12(r.starts_at)}</td>
+                  <td className="p-2">{fmt12(r.ends_at)}</td>
                 </tr>
               ))}
               {rowsMat.length === 0 && (
@@ -209,8 +215,8 @@ export default function AdminReservationsAll() {
                 <tr key={r.id} className="border-t">
                   <td className="p-2">{r.teams?.name || '—'}</td>
                   <td className="p-2">{r.field_zones?.name || '—'}</td>
-                  <td className="p-2">{fmt(r.starts_at)}</td>
-                  <td className="p-2">{fmt(r.ends_at)}</td>
+                  <td className="p-2">{fmt12(r.starts_at)}</td>
+                  <td className="p-2">{fmt12(r.ends_at)}</td>
                 </tr>
               ))}
               {rowsField.length === 0 && (
