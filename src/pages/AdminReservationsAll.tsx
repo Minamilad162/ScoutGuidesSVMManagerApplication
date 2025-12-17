@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/PageLoader'
 import { useToast } from '../components/ui/Toaster'
@@ -6,19 +6,74 @@ import { useToast } from '../components/ui/Toaster'
 type RowMat = { id: string; starts_at: string; ends_at: string; qty: number; teams?: { name: string }, materials?: { name: string } }
 type RowField = { id: string; starts_at: string; ends_at: string; teams?: { name: string }, field_zones?: { name: string } }
 
+type Term = { id: string; name: string; year: number; start_date: string | null; end_date: string | null }
+type TermDateRow = { id: string; meeting_date: string } // YYYY-MM-DD
+
 export default function AdminReservationsAll() {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
 
+  // اختيار الترم + تواريخه
+  const [terms, setTerms] = useState<Term[]>([])
+  const [termId, setTermId] = useState<string>('')
+  const [termDates, setTermDates] = useState<TermDateRow[]>([])
+  const hasTermDates = termDates.length > 0
+
+  // اليوم المختار (من قائمة الترم)
   const [date, setDate] = useState<string>('')
+
+  // نتائج اليوم
   const [rowsMat, setRowsMat] = useState<RowMat[]>([])
   const [rowsField, setRowsField] = useState<RowField[]>([])
 
-  useEffect(() => {
-    const today = new Date(); const pad=(n:number)=>String(n).padStart(2,'0')
-    setDate(`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`)
-  }, [])
+  const termMeta = useMemo(() => terms.find(t => t.id === termId) || null, [terms, termId])
 
+  /* =========== تحميل الترمات =========== */
+  useEffect(() => { init() }, [])
+  async function init() {
+    setLoading(true)
+    try {
+      const { data: tm, error } = await supabase
+        .from('terms')
+        .select('id,name,year,start_date,end_date')
+        .order('year', { ascending: false })
+        .order('name', { ascending: true })
+      if (error) throw error
+      setTerms((tm as any) ?? [])
+      if (tm && tm.length) setTermId(tm[0].id)
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل الترمات')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /* =========== تحميل تواريخ الترم المختار =========== */
+  useEffect(() => { if (termId) loadTermDates(termId) }, [termId])
+  async function loadTermDates(tid: string) {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('term_meeting_dates')
+        .select('id,meeting_date')
+        .eq('term_id', tid)
+        .order('meeting_date', { ascending: true })
+      if (error) throw error
+      const list = (data as any as TermDateRow[]) ?? []
+      setTermDates(list)
+
+      // لو اليوم الحالي مش ضمن القائمة أو فاضي، خليه أول تاريخ متاح
+      if (!list.find(d => d.meeting_date === date)) {
+        setDate(list[0]?.meeting_date || '')
+      }
+    } catch (e:any) {
+      toast.error(e.message || 'تعذر تحميل تواريخ الترم')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /* =========== تحديث النتائج عند تغيير التاريخ =========== */
   useEffect(() => { if (date) refresh() }, [date])
 
   async function refresh() {
@@ -61,24 +116,51 @@ export default function AdminReservationsAll() {
     <div className="p-6 space-y-6">
       <PageLoader visible={loading} text="جاري التحميل..." />
 
-      <h1 className="text-xl font-bold">حجز عهده اليوم</h1>
+      <h1 className="text-xl font-bold">حجز عُهدة اليوم (كل الفرق)</h1>
 
-      {/* ✅ تاريخ مرن */}
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-sm">التاريخ</label>
-        <input
-          type="date"
-          className="border rounded-xl p-2 w-full sm:w-auto"
-          value={date}
-          onChange={e=>setDate(e.target.value)}
-        />
+      {/* اختيار الترم + تاريخ من تواريخه */}
+      <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
+        <div>
+          <label className="text-sm">الترم</label>
+          <select
+            className="border rounded-xl p-2 w-full"
+            value={termId}
+            onChange={e=>setTermId(e.target.value)}
+          >
+            {terms.map(t => (
+              <option key={t.id} value={t.id}>{t.year} — {t.name}</option>
+            ))}
+          </select>
+          {termMeta?.start_date && termMeta?.end_date && (
+            <div className="text-[11px] text-gray-500 mt-1">
+              نطاق الترم: {termMeta.start_date} → {termMeta.end_date}
+            </div>
+          )}
+        </div>
+
+        <div className={`${hasTermDates ? '' : 'opacity-60 pointer-events-none'}`}>
+          <label className="text-sm">التاريخ (من جدول الترم)</label>
+          <select
+            className="border rounded-xl p-2 w-full"
+            value={date}
+            onChange={e=>setDate(e.target.value)}
+            disabled={!hasTermDates}
+          >
+            {!hasTermDates && <option value="">— لا توجد تواريخ مثبتة —</option>}
+            {termDates.map(d => (
+              <option key={d.id} value={d.meeting_date}>{d.meeting_date}</option>
+            ))}
+          </select>
+          {!hasTermDates && (
+            <div className="text-[11px] text-amber-600 mt-1">لا توجد تواريخ مثبتة لهذا الترم.</div>
+          )}
+        </div>
       </div>
 
       {/* حجوزات العهدة */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">حجوزات العهده</h2>
+        <h2 className="text-lg font-semibold">حجوزات العهدة</h2>
         <div className="border rounded-2xl w-full max-w-full overflow-x-auto">
-          {/* ✅ حد أدنى للعرض عشان Scroll على الموبايل */}
           <table className="w-full min-w-[640px] text-xs sm:text-sm">
             <thead className="bg-gray-100">
               <tr>
