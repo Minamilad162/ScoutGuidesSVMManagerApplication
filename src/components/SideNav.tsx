@@ -171,6 +171,8 @@ export default function SideNav({ onNavigate }: Props) {
       if (has('responsable_materials')) {
               pushUnique(res, '/app/FieldReservationsTeam', 'حجز الارض')
                       pushUnique(res, '/app/MaterialTeamReservation', 'حجز الأدوات' )
+              pushUnique(res, '/app/AdminReservationsAll', 'الحجوزات')
+
 
       }
 
